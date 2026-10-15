@@ -147,7 +147,11 @@ export class ComposeService {
       const meta = metaMap.get(name);
       if (meta) {
         item.isIgnored = !!meta.is_ignored;
-        if (meta.update_available) {
+        // Authority check: if project was explicitly updated or checked to be up-to-date
+        if (meta.update_available === 0) {
+          item.updateAvailable = false;
+          item.updatedServices = [];
+        } else if (meta.update_available === 1) {
           item.updateAvailable = true;
         }
         if (meta.last_checked_at && (!item.lastCheckedAt || meta.last_checked_at > item.lastCheckedAt)) {
@@ -300,13 +304,30 @@ export class ComposeService {
       // Reset update_available in containers_meta for all containers in this compose project
       if (docker) {
         try {
+          // Brief pause to ensure Docker daemon has registered updated containers
+          await new Promise(r => setTimeout(r, 600));
           const containers = await docker.listContainers({ all: true });
           for (const c of containers) {
             if (c.Labels && c.Labels['com.docker.compose.project'] === projectName) {
-              db.prepare('UPDATE containers_meta SET update_available = 0 WHERE id = ?').run(c.Id);
+              const rawName = (c.Names && c.Names[0]) || '';
+              const cleanName = rawName.replace(/^\//, '');
+              // Reset by container ID
+              db.prepare('UPDATE containers_meta SET update_available = 0, last_checked_at = CURRENT_TIMESTAMP WHERE id = ?').run(c.Id);
+              // Reset by container Name to wipe out any stale legacy IDs
+              if (cleanName) {
+                db.prepare('UPDATE containers_meta SET update_available = 0, last_checked_at = CURRENT_TIMESTAMP WHERE name = ?').run(cleanName);
+              }
+              // Ensure entry exists for current container ID with update_available = 0
+              db.prepare(`
+                INSERT INTO containers_meta (id, name, last_checked_at, update_available)
+                VALUES (?, ?, CURRENT_TIMESTAMP, 0)
+                ON CONFLICT(id) DO UPDATE SET update_available = 0, last_checked_at = CURRENT_TIMESTAMP
+              `).run(c.Id, cleanName);
             }
           }
-        } catch {}
+        } catch (e) {
+          console.warn('[Compose] 清理更新状态失败:', e);
+        }
       }
 
       db.prepare(`

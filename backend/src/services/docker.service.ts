@@ -123,28 +123,31 @@ export class DockerService {
     const info = await container.inspect();
     const imageName = info.Config.Image;
 
-    // Gather all local digests: Image ID, RepoDigests
+    // Gather all local digests: Image ID, RepoDigests from both image ID and tagged image name
     const localDigests = new Set<string>();
     let currentDigest = '';
-    try {
-      const imageInfo = await docker.getImage(info.Image).inspect();
-      if (imageInfo.Id) {
-        currentDigest = imageInfo.Id;
-        localDigests.add(imageInfo.Id.trim().toLowerCase());
-        localDigests.add(imageInfo.Id.replace(/^sha256:/, '').trim().toLowerCase());
-      }
-      if (imageInfo.RepoDigests && imageInfo.RepoDigests.length > 0) {
-        for (const rd of imageInfo.RepoDigests) {
-          const split = rd.split('@');
-          const d = (split.length > 1 ? split[1] : split[0]).trim().toLowerCase();
-          if (!currentDigest) currentDigest = d;
-          localDigests.add(d);
-          localDigests.add(d.replace(/^sha256:/, ''));
+    const inspectImage = async (imgRef: string) => {
+      try {
+        const imageInfo = await docker!.getImage(imgRef).inspect();
+        if (imageInfo.Id) {
+          if (!currentDigest) currentDigest = imageInfo.Id;
+          localDigests.add(imageInfo.Id.trim().toLowerCase());
+          localDigests.add(imageInfo.Id.replace(/^sha256:/, '').trim().toLowerCase());
         }
-      }
-    } catch (e) {
-      currentDigest = info.Image;
-    }
+        if (imageInfo.RepoDigests && imageInfo.RepoDigests.length > 0) {
+          for (const rd of imageInfo.RepoDigests) {
+            const split = rd.split('@');
+            const d = (split.length > 1 ? split[1] : split[0]).trim().toLowerCase();
+            if (!currentDigest) currentDigest = d;
+            localDigests.add(d);
+            localDigests.add(d.replace(/^sha256:/, ''));
+          }
+        }
+      } catch {}
+    };
+
+    if (info.Image) await inspectImage(info.Image);
+    if (imageName && imageName !== info.Image) await inspectImage(imageName);
 
     // Query remote digest from Registry
     const remoteInfo = await RegistryService.getRemoteDigestInfo(imageName);
@@ -180,6 +183,15 @@ export class DockerService {
       remoteDigest || '',
       updateAvailable ? 1 : 0
     );
+
+    // Sync all matching records by container name to prevent zombie records
+    if (containerName) {
+      db.prepare(`
+        UPDATE containers_meta 
+        SET update_available = ?, last_checked_at = CURRENT_TIMESTAMP, last_remote_digest = ?
+        WHERE name = ? AND id != ?
+      `).run(updateAvailable ? 1 : 0, remoteDigest || '', containerName, canonicalId);
+    }
 
     if (canonicalId !== containerId) {
       db.prepare('DELETE FROM containers_meta WHERE id = ?').run(containerId);

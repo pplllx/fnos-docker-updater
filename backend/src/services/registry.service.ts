@@ -169,21 +169,30 @@ export class RegistryService {
     const allDigests: string[] = [];
     if (primaryDigest) allDigests.push(primaryDigest);
 
-    // If this is a Manifest List / Index, look for the platform manifest and resolve image config digest
+    // If this is a Manifest List / Index, look for platform manifests and resolve config digests
     if (res.data && Array.isArray(res.data.manifests)) {
+      for (const m of res.data.manifests) {
+        if (m.digest) {
+          allDigests.push(m.digest);
+        }
+      }
+
       const targetArch = process.arch === 'arm64' ? 'arm64' : 'amd64';
       const platformItem = res.data.manifests.find((m: any) =>
         m.platform?.architecture === targetArch && m.platform?.os === 'linux'
       ) || res.data.manifests.find((m: any) => m.platform?.architecture === 'amd64') || res.data.manifests[0];
 
       if (platformItem && platformItem.digest) {
-        allDigests.push(platformItem.digest);
         // Fetch the platform manifest to get the image config digest
         try {
           const pUrl = `${baseUrl}/v2/${repository}/manifests/${platformItem.digest}`;
           const pRes = await axios.get(pUrl, clientConfig);
           if (pRes.data && pRes.data.config?.digest) {
             allDigests.push(pRes.data.config.digest);
+          }
+          const pDigest = pRes.headers['docker-content-digest'] || pRes.headers['Docker-Content-Digest'];
+          if (pDigest) {
+            allDigests.push(pDigest.trim());
           }
         } catch {}
       }
