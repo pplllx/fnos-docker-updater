@@ -16,7 +16,9 @@ RUN npm run build
 FROM node:22-alpine AS backend-builder
 WORKDIR /app/backend
 
-RUN apk add --no-cache python3 make g++
+# 使用阿里云 Alpine 镜像源极速下载依赖
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+    && apk add --no-cache python3 make g++
 
 COPY backend/package.json ./
 RUN npm config set registry https://registry.npmmirror.com && npm install
@@ -33,21 +35,17 @@ COPY --from=frontend-builder /app/backend/dist/public ./dist/public
 FROM node:22-alpine AS runner
 WORKDIR /app
 
-# Install Docker CLI and Docker Compose Plugin on Alpine
-RUN apk add --no-cache docker-cli docker-cli-compose tzdata
+# 使用阿里云 Alpine 源极速安装 Docker CLI 与 Compose 插件
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+    && apk add --no-cache docker-cli docker-cli-compose tzdata
 
 ENV NODE_ENV=production
 ENV PORT=5678
 ENV HOST=0.0.0.0
 ENV DB_PATH=/data/data.db
 
-WORKDIR /app
-COPY backend/package.json ./
-RUN apk add --no-cache python3 make g++ \
-    && npm config set registry https://registry.npmmirror.com \
-    && npm install --omit=dev \
-    && apk del python3 make g++
-
+# 直接复用 Stage 2 编译好的 node_modules 与产物，避免二次编译
+COPY --from=backend-builder /app/backend/node_modules ./node_modules
 COPY --from=backend-builder /app/backend/dist ./dist
 
 # Create persistent data volume
