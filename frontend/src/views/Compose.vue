@@ -8,7 +8,19 @@
           自动聚合管理飞牛 NAS 上的 Docker Compose 项目，支持直接查看编辑配置文件与一键拉取重建
         </p>
       </div>
-      <div>
+      <div class="flex items-center space-x-3">
+        <el-input
+          v-model="searchQuery"
+          placeholder="搜索项目或服务..."
+          clearable
+          class="!w-56"
+        >
+          <template #prefix>
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </template>
+        </el-input>
         <el-button
           type="primary"
           :loading="loading"
@@ -20,34 +32,75 @@
       </div>
     </div>
 
+    <!-- Targeted project notice banner -->
+    <div
+      v-if="targetedProject"
+      class="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+    >
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold shrink-0 text-base">
+          🎯
+        </div>
+        <div>
+          <h4 class="text-sm font-bold text-purple-950 dark:text-purple-200">
+            已为您精准定位至 Compose 编排项目【{{ targetedProject }}】
+          </h4>
+          <p class="text-xs text-purple-700 dark:text-purple-300/80 mt-0.5">
+            在此处点击「拉取并更新编排」将采用原生 Docker Compose 执行多服务依赖校验与网络重启，保障服务稳定运行。
+          </p>
+        </div>
+      </div>
+      <el-button size="small" @click="clearTargetedProject" class="shrink-0">
+        显示全部项目 ({{ projects.length }})
+      </el-button>
+    </div>
+
     <!-- Projects Grid -->
     <div v-loading="loading" class="grid grid-cols-1 md:grid-cols-2 gap-5">
-      <div v-if="projects.length === 0 && !loading" class="col-span-full bg-white dark:bg-slate-800 p-12 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
+      <div v-if="filteredProjects.length === 0 && !loading" class="col-span-full bg-white dark:bg-slate-800 p-12 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
         <svg class="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
         </svg>
-        <p class="text-slate-500 dark:text-slate-400 font-medium">未发现运行中的 Docker Compose 项目</p>
+        <p class="text-slate-500 dark:text-slate-400 font-medium">未找到匹配的 Docker Compose 项目</p>
         <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
           可在“系统设置 -> Compose 扫描目录”中添加飞牛存储路径（如 /vol1/1000/docker 等）扫描离线项目
         </p>
       </div>
 
       <div
-        v-for="proj in projects"
+        v-for="proj in filteredProjects"
         :key="proj.name"
-        class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-sm hover:shadow-md transition p-5 flex flex-col justify-between space-y-4"
+        :id="'project-' + proj.name"
+        :class="[
+          'bg-white dark:bg-slate-800 rounded-xl border p-5 flex flex-col justify-between space-y-4 transition-all duration-300',
+          isTargeted(proj.name)
+            ? 'border-purple-500 ring-2 ring-purple-500/50 shadow-lg shadow-purple-500/10'
+            : 'border-slate-200 dark:border-slate-700/60 shadow-sm hover:shadow-md'
+        ]"
       >
         <!-- Top bar -->
         <div>
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-2.5">
-              <div class="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+              <div
+                :class="[
+                  'w-8 h-8 rounded-lg flex items-center justify-center font-bold',
+                  isTargeted(proj.name)
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400'
+                ]"
+              >
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
                 </svg>
               </div>
               <div>
-                <h3 class="font-bold text-slate-900 dark:text-white text-base">{{ proj.name }}</h3>
+                <div class="flex items-center space-x-2">
+                  <h3 class="font-bold text-slate-900 dark:text-white text-base">{{ proj.name }}</h3>
+                  <span v-if="isTargeted(proj.name)" class="text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 px-1.5 py-0.5 rounded font-medium">
+                    当前定位
+                  </span>
+                </div>
                 <span class="text-xs text-slate-400 font-mono block truncate max-w-xs" :title="proj.path">
                   {{ proj.path || '通过容器标签发现' }}
                 </span>
@@ -93,6 +146,7 @@
             <el-button
               size="small"
               type="primary"
+              :class="isTargeted(proj.name) ? '!bg-purple-600 !border-purple-600 hover:!bg-purple-700' : ''"
               :disabled="!proj.path"
               @click="updateProject(proj)"
             >
@@ -136,26 +190,66 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/app';
 import StatusBadge from '../components/StatusBadge.vue';
 
+const route = useRoute();
+const router = useRouter();
 const appStore = useAppStore();
 const projects = ref<any[]>([]);
 const loading = ref(false);
+const searchQuery = ref('');
+const targetedProject = ref<string | null>(null);
 
 const editorVisible = ref(false);
 const currentProject = ref<any>(null);
 const composeContent = ref('');
 const saving = ref(false);
 
+const filteredProjects = computed(() => {
+  let list = projects.value;
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase();
+    list = list.filter(p =>
+      p.name?.toLowerCase().includes(q) ||
+      p.services?.some((s: string) => s.toLowerCase().includes(q)) ||
+      p.path?.toLowerCase().includes(q)
+    );
+  }
+  return list;
+});
+
+function isTargeted(name: string) {
+  return targetedProject.value && targetedProject.value.toLowerCase() === name.toLowerCase();
+}
+
+function clearTargetedProject() {
+  targetedProject.value = null;
+  searchQuery.value = '';
+  router.replace({ query: {} });
+}
+
 async function loadProjects() {
   loading.value = true;
   try {
     const res: any = await api.get('/compose');
     projects.value = res.data || [];
+
+    // Check if routed with project query
+    if (route.query.project) {
+      targetedProject.value = route.query.project as string;
+      searchQuery.value = route.query.project as string;
+      setTimeout(() => {
+        const el = document.getElementById(`project-${targetedProject.value}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 250);
+    }
   } catch (err: any) {
   } finally {
     loading.value = false;

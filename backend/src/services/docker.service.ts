@@ -239,6 +239,11 @@ export class DockerService {
 
     sseManager.emitLog(sessionId, `>>> 正在启动容器更新任务: ${originalName} (ID: ${containerId.substring(0, 12)})`, 'info');
 
+    if (oldInfo.Config.Labels && oldInfo.Config.Labels['com.docker.compose.project']) {
+      const proj = oldInfo.Config.Labels['com.docker.compose.project'];
+      sseManager.emitLog(sessionId, `[注意] 检测到此容器属于 Compose 项目【${proj}】，当前正在执行单容器独立强制更新...`, 'warn');
+    }
+
     // Step 1: Pull new image
     await this.pullImageWithProgress(imageName, sessionId);
 

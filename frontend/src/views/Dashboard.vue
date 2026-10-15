@@ -148,7 +148,17 @@
           class="bg-white dark:bg-slate-800 p-3 rounded-lg border border-amber-200 dark:border-slate-700 shadow-sm flex items-center justify-between"
         >
           <div class="truncate mr-3">
-            <div class="font-medium text-slate-800 dark:text-slate-100 truncate text-sm">{{ c.name }}</div>
+            <div class="flex items-center space-x-1.5 truncate">
+              <span class="font-medium text-slate-800 dark:text-slate-100 truncate text-sm">{{ c.name }}</span>
+              <span
+                v-if="c.isCompose"
+                @click.stop="goToComposeProject(c.composeProject)"
+                class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800 cursor-pointer hover:bg-purple-200 shrink-0"
+                title="Compose 编排项目，点击查看"
+              >
+                {{ c.composeProject }}
+              </span>
+            </div>
             <div class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ c.image }}:{{ c.tag }}</div>
           </div>
           <el-button
@@ -204,7 +214,20 @@
                 <StatusBadge :state="c.state" :update-available="c.updateAvailable" />
               </td>
               <td class="px-5 py-3.5 text-xs text-slate-500">
-                {{ c.isCompose ? `Compose (${c.composeProject})` : '独立容器' }}
+                <span
+                  v-if="c.isCompose"
+                  @click.stop="goToComposeProject(c.composeProject)"
+                  class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-800/80 transition-all"
+                  title="点击直达 Compose 编排项目"
+                >
+                  <svg class="w-3 h-3 text-purple-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+                  </svg>
+                  <span>Compose: {{ c.composeProject }}</span>
+                </span>
+                <span v-else class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  独立容器
+                </span>
               </td>
               <td class="px-5 py-3.5 text-right space-x-2">
                 <el-button
@@ -225,11 +248,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/app';
 import StatusBadge from '../components/StatusBadge.vue';
 
+const router = useRouter();
 const appStore = useAppStore();
 const containers = ref<any[]>([]);
 const composeList = ref<any[]>([]);
@@ -241,6 +266,14 @@ const demoMode = ref(false);
 const runningCount = computed(() => containers.value.filter(c => c.state === 'running').length);
 const updateCount = computed(() => containers.value.filter(c => c.updateAvailable).length);
 const pendingUpdateContainers = computed(() => containers.value.filter(c => c.updateAvailable));
+
+function goToComposeProject(projectName?: string) {
+  if (projectName) {
+    router.push({ path: '/compose', query: { project: projectName } });
+  } else {
+    router.push('/compose');
+  }
+}
 
 async function loadData() {
   try {
@@ -292,6 +325,29 @@ async function handlePrune() {
 }
 
 async function triggerUpdate(c: any) {
+  if (c.isCompose) {
+    try {
+      await ElMessageBox.confirm(
+        `容器【${c.name}】由 Docker Compose 编排统一管理（所属项目：${c.composeProject}）。\n\n若直接作为单容器升级，可能导致容器脱离编排或断开内部网络连接。\n\n强烈推荐前往 Compose 页面使用原生安全模式拉取与更新。`,
+        'Compose 容器更新防呆拦截',
+        {
+          distinguishCancelAndClose: true,
+          confirmButtonText: '👉 前往 Compose 编排安全更新 (推荐)',
+          cancelButtonText: '仍按单容器强制更新',
+          type: 'warning'
+        }
+      );
+      // Confirmed: go to compose page
+      goToComposeProject(c.composeProject);
+      return;
+    } catch (action) {
+      if (action !== 'cancel') {
+        return; // Closed dialog
+      }
+      // User chose "仍按单容器强制更新"
+    }
+  }
+
   const sessionId = `update-${c.name}-${Date.now()}`;
   appStore.openTerminal(sessionId, `正在升级容器: ${c.name}`);
   try {

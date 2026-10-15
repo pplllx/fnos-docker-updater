@@ -10,6 +10,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # 挂载 SQLite 数据库及配置持久化目录
       - ./data:/data
+      # 挂载宿主机项目目录以便读取和更新 Compose 项目
+      - /home:/home
+      - /vol1:/vol1
+      - /vol2:/vol2
     environment:
       - TZ=Asia/Shanghai
       - PORT=5688

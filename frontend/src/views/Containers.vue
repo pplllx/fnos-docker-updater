@@ -31,12 +31,13 @@
 
     <!-- Filters & Search -->
     <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-      <div class="flex items-center space-x-2 w-full md:w-auto">
+      <div class="flex items-center space-x-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
         <el-radio-group v-model="filterTab" size="default">
           <el-radio-button label="all">全部 ({{ containers.length }})</el-radio-button>
+          <el-radio-button label="standalone">纯独立容器 ({{ standaloneCount }})</el-radio-button>
+          <el-radio-button label="compose">Compose 关联 ({{ composeCount }})</el-radio-button>
           <el-radio-button label="updates">可更新 ({{ updateCount }})</el-radio-button>
-          <el-radio-button label="running">运行中</el-radio-button>
-          <el-radio-button label="standalone">独立容器</el-radio-button>
+          <el-radio-button label="running">运行中 ({{ runningCount }})</el-radio-button>
         </el-radio-group>
       </div>
 
@@ -67,10 +68,35 @@
         <el-table-column type="selection" width="48" />
 
         <!-- Name & ID -->
-        <el-table-column label="容器名称" min-width="180">
+        <el-table-column label="容器名称 / 所属编排" min-width="220">
           <template #default="{ row }">
-            <div class="flex items-center space-x-2">
+            <div class="flex items-center flex-wrap gap-1.5">
               <span class="font-semibold text-slate-900 dark:text-white">{{ row.name }}</span>
+
+              <!-- Compose Exclusive Badge -->
+              <span
+                v-if="row.isCompose"
+                @click.stop="goToComposeProject(row.composeProject)"
+                class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-800/80 hover:shadow-xs transition-all"
+                title="该容器属于 Compose 编排项目，点击直达项目卡片"
+              >
+                <svg class="w-3 h-3 text-purple-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+                </svg>
+                <span>Compose: {{ row.composeProject || '编排关联' }}</span>
+                <svg class="w-2.5 h-2.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+              </span>
+
+              <!-- Standalone Badge -->
+              <span
+                v-else
+                class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+              >
+                独立容器
+              </span>
+
               <span v-if="row.isPinned" class="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded font-mono">
                 锁定
               </span>
@@ -78,7 +104,12 @@
                 已忽略
               </span>
             </div>
-            <div class="text-xs text-slate-400 font-mono mt-0.5">{{ row.id.substring(0, 12) }}</div>
+            <div class="text-xs text-slate-400 font-mono mt-0.5 flex items-center space-x-2">
+              <span>{{ row.id.substring(0, 12) }}</span>
+              <span v-if="row.composeFile" class="text-slate-400 truncate max-w-xs text-[11px]" :title="row.composeFile">
+                📁 {{ row.composeFile }}
+              </span>
+            </div>
           </template>
         </el-table-column>
 
@@ -148,7 +179,7 @@
                 size="small"
                 :type="row.updateAvailable ? 'warning' : 'primary'"
                 plain
-                @click="updateSingle(row)"
+                @click="handleUpdateClick(row)"
               >
                 升级
               </el-button>
@@ -175,16 +206,105 @@
         </el-table-column>
       </el-table>
     </div>
+
+    <!-- Compose Update Interception Dialog -->
+    <el-dialog
+      v-model="interceptDialogVisible"
+      title="🛡️ 安全防呆拦截：检测到 Compose 编排项目容器"
+      width="600px"
+      destroy-on-close
+      class="!rounded-2xl"
+    >
+      <div class="space-y-4">
+        <!-- Alert Banner -->
+        <div class="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl p-4 flex items-start space-x-3">
+          <div class="p-2 bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-400 rounded-lg shrink-0 mt-0.5">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <div>
+            <h4 class="text-sm font-bold text-amber-900 dark:text-amber-200">
+              容器【{{ interceptContainer?.name }}】由 Docker Compose 统一管理
+            </h4>
+            <p class="text-xs text-amber-700 dark:text-amber-300/90 mt-1 leading-relaxed">
+              若直接作为单容器执行升级，Docker 会生成独立的孤立容器，可能导致<strong>脱离原 Compose 编排管辖</strong>，并<strong>断开项目内部局域网</strong>（例如无法通过服务名连接同编排的数据库、Redis 或网关）。
+            </p>
+          </div>
+        </div>
+
+        <!-- Meta info -->
+        <div class="bg-slate-50 dark:bg-slate-800/80 rounded-xl p-4 border border-slate-200 dark:border-slate-700/60 text-xs space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500 dark:text-slate-400">所属编排项目：</span>
+            <span class="font-bold text-purple-600 dark:text-purple-400 flex items-center space-x-1.5 bg-purple-50 dark:bg-purple-900/30 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800/50">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
+              </svg>
+              <span>{{ interceptContainer?.composeProject }}</span>
+            </span>
+          </div>
+
+          <div v-if="interceptContainer?.composeFile" class="flex items-center justify-between">
+            <span class="text-slate-500 dark:text-slate-400 shrink-0 mr-2">Compose 配置文件：</span>
+            <span class="font-mono text-slate-700 dark:text-slate-200 truncate max-w-sm" :title="interceptContainer?.composeFile">
+              {{ interceptContainer?.composeFile }}
+            </span>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <span class="text-slate-500 dark:text-slate-400">当前镜像版本：</span>
+            <span class="font-mono text-slate-700 dark:text-slate-200">
+              {{ interceptContainer?.image }}:{{ interceptContainer?.tag }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Recommendation -->
+        <div class="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 p-3.5 rounded-xl leading-relaxed flex items-start space-x-2">
+          <span class="text-base leading-none">💡</span>
+          <div>
+            <strong>强烈推荐操作：</strong>
+            前往【Compose 编排管理】页面，直接点击该项目的「拉取并更新编排」按钮。系统将通过原生 <code>docker compose pull && up -d</code> 安全升级，完好保留所有网络拓扑和多容器依赖。
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex items-center justify-between pt-2">
+          <el-button
+            type="danger"
+            text
+            size="small"
+            @click="forceUpdateSingle"
+          >
+            仍按单容器强制更新
+          </el-button>
+          <div class="space-x-2">
+            <el-button @click="interceptDialogVisible = false">取消</el-button>
+            <el-button
+              type="primary"
+              class="!bg-purple-600 !border-purple-600 hover:!bg-purple-700"
+              @click="goToComposeFromModal"
+            >
+              👉 前往 Compose 编排安全更新 (推荐)
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { useRouter } from 'vue-router';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/app';
 import StatusBadge from '../components/StatusBadge.vue';
 
+const router = useRouter();
 const appStore = useAppStore();
 const containers = ref<any[]>([]);
 const loading = ref(false);
@@ -194,7 +314,14 @@ const selectedContainers = ref<any[]>([]);
 const filterTab = ref('all');
 const searchQuery = ref('');
 
+// Interception dialog state
+const interceptDialogVisible = ref(false);
+const interceptContainer = ref<any>(null);
+
 const updateCount = computed(() => containers.value.filter(c => c.updateAvailable).length);
+const standaloneCount = computed(() => containers.value.filter(c => !c.isCompose).length);
+const composeCount = computed(() => containers.value.filter(c => c.isCompose).length);
+const runningCount = computed(() => containers.value.filter(c => c.state === 'running').length);
 
 const filteredContainers = computed(() => {
   return containers.value.filter(c => {
@@ -202,11 +329,15 @@ const filteredContainers = computed(() => {
     if (filterTab.value === 'updates' && !c.updateAvailable) return false;
     if (filterTab.value === 'running' && c.state !== 'running') return false;
     if (filterTab.value === 'standalone' && c.isCompose) return false;
+    if (filterTab.value === 'compose' && !c.isCompose) return false;
 
     // Search query
     if (searchQuery.value) {
       const q = searchQuery.value.toLowerCase();
-      return c.name.toLowerCase().includes(q) || c.image.toLowerCase().includes(q);
+      const matchName = c.name?.toLowerCase().includes(q);
+      const matchImage = c.image?.toLowerCase().includes(q);
+      const matchProject = c.composeProject?.toLowerCase().includes(q);
+      return matchName || matchImage || matchProject;
     }
     return true;
   });
@@ -252,7 +383,38 @@ async function checkAll() {
   }
 }
 
-async function updateSingle(c: any) {
+function handleUpdateClick(c: any) {
+  if (c.isCompose) {
+    interceptContainer.value = c;
+    interceptDialogVisible.value = true;
+    return;
+  }
+  executeSingleUpdate(c);
+}
+
+function forceUpdateSingle() {
+  if (!interceptContainer.value) return;
+  const target = interceptContainer.value;
+  interceptDialogVisible.value = false;
+  executeSingleUpdate(target);
+}
+
+function goToComposeFromModal() {
+  if (!interceptContainer.value) return;
+  const project = interceptContainer.value.composeProject;
+  interceptDialogVisible.value = false;
+  goToComposeProject(project);
+}
+
+function goToComposeProject(projectName?: string) {
+  if (projectName) {
+    router.push({ path: '/compose', query: { project: projectName } });
+  } else {
+    router.push('/compose');
+  }
+}
+
+async function executeSingleUpdate(c: any) {
   const sessionId = `update-${c.name}-${Date.now()}`;
   appStore.openTerminal(sessionId, `正在升级容器: ${c.name}`);
   try {
@@ -261,8 +423,43 @@ async function updateSingle(c: any) {
 }
 
 async function batchUpdate() {
+  const composeSelected = selectedContainers.value.filter(c => c.isCompose);
+  const standaloneSelected = selectedContainers.value.filter(c => !c.isCompose);
+
+  if (composeSelected.length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        `您选中的 ${selectedContainers.value.length} 个容器中，包含 ${composeSelected.length} 个由 Compose 编排管理的容器（如：${composeSelected.map(c => c.name).join('、')}）。\n\n为避免破坏 Compose 网络与编排完整性，推荐仅更新选中的独立容器。`,
+        '批量更新防呆拦截',
+        {
+          distinguishCancelAndClose: true,
+          confirmButtonText: `仅更新 ${standaloneSelected.length} 个独立容器 (推荐)`,
+          cancelButtonText: '全部强制更新 (不推荐)',
+          type: 'warning'
+        }
+      );
+      // User picked "仅更新独立容器"
+      if (standaloneSelected.length === 0) {
+        ElMessage.info('选中的容器中无独立容器，已取消操作。建议前往 Compose 编排页面升级。');
+        return;
+      }
+      for (const c of standaloneSelected) {
+        await executeSingleUpdate(c);
+      }
+    } catch (action) {
+      if (action === 'cancel') {
+        // User confirmed all force update
+        for (const c of selectedContainers.value) {
+          await executeSingleUpdate(c);
+        }
+      }
+    }
+    return;
+  }
+
+  // Pure standalone containers
   for (const c of selectedContainers.value) {
-    await updateSingle(c);
+    await executeSingleUpdate(c);
   }
 }
 
