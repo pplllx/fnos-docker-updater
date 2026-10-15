@@ -12,6 +12,6 @@ services:
       - ./data:/data
     environment:
       - TZ=Asia/Shanghai
-      - PORT=5678
+      - PORT=5688
       - HOST=0.0.0.0
       - JWT_SECRET=fnos-updater-secure-secret-please-change
