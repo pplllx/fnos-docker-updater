@@ -5,7 +5,7 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package.json ./
-RUN npm install
+RUN npm config set registry https://registry.npmmirror.com && npm install
 
 COPY frontend/ ./
 RUN npm run build
@@ -19,7 +19,7 @@ WORKDIR /app/backend
 RUN apk add --no-cache python3 make g++
 
 COPY backend/package.json ./
-RUN npm install
+RUN npm config set registry https://registry.npmmirror.com && npm install
 
 COPY backend/ ./
 RUN npm run build
@@ -44,6 +44,7 @@ ENV DB_PATH=/data/data.db
 WORKDIR /app
 COPY backend/package.json ./
 RUN apk add --no-cache python3 make g++ \
+    && npm config set registry https://registry.npmmirror.com \
     && npm install --omit=dev \
     && apk del python3 make g++
 
