@@ -111,14 +111,15 @@ export async function containerRoutes(fastify: FastifyInstance) {
   // Toggle ignore update for container
   fastify.post('/:id/toggle-ignore', async (req: FastifyRequest<{ Params: { id: string } }>) => {
     const { id } = req.params;
-    const row = db.prepare('SELECT is_ignored FROM containers_meta WHERE id = ?').get(id) as any;
+    const row = db.prepare('SELECT id, is_ignored FROM containers_meta WHERE id = ? OR id LIKE ?').get(id, `${id}%`) as any;
     const newStatus = row && row.is_ignored ? 0 : 1;
+    const targetId = (row && row.id) ? row.id : id;
 
     db.prepare(`
       INSERT INTO containers_meta (id, name, is_ignored)
       VALUES (?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET is_ignored = ?
-    `).run(id, id.substring(0, 12), newStatus, newStatus);
+    `).run(targetId, id.substring(0, 12), newStatus, newStatus);
 
     return { id, isIgnored: !!newStatus };
   });
@@ -126,14 +127,15 @@ export async function containerRoutes(fastify: FastifyInstance) {
   // Toggle pin version for container
   fastify.post('/:id/toggle-pin', async (req: FastifyRequest<{ Params: { id: string } }>) => {
     const { id } = req.params;
-    const row = db.prepare('SELECT is_pinned FROM containers_meta WHERE id = ?').get(id) as any;
+    const row = db.prepare('SELECT id, is_pinned FROM containers_meta WHERE id = ? OR id LIKE ?').get(id, `${id}%`) as any;
     const newStatus = row && row.is_pinned ? 0 : 1;
+    const targetId = (row && row.id) ? row.id : id;
 
     db.prepare(`
       INSERT INTO containers_meta (id, name, is_pinned)
       VALUES (?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET is_pinned = ?
-    `).run(id, id.substring(0, 12), newStatus, newStatus);
+    `).run(targetId, id.substring(0, 12), newStatus, newStatus);
 
     return { id, isPinned: !!newStatus };
   });

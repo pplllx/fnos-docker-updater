@@ -51,7 +51,12 @@ export class DockerService {
     // Pre-fetch metadata from sqlite
     const metaRows = db.prepare('SELECT * FROM containers_meta').all() as any[];
     const metaMap = new Map<string, any>();
-    metaRows.forEach(r => metaMap.set(r.id, r));
+    metaRows.forEach(r => {
+      metaMap.set(r.id, r);
+      if (r.id && r.id.length > 12) {
+        metaMap.set(r.id.substring(0, 12), r);
+      }
+    });
 
     for (const c of rawList) {
       const id = c.Id;
@@ -72,7 +77,7 @@ export class DockerService {
         });
       }
 
-      const meta = metaMap.get(id);
+      const meta = metaMap.get(id) || metaMap.get(id.substring(0, 12));
 
       // Parse image & tag
       let image = c.Image;
@@ -156,7 +161,10 @@ export class DockerService {
       updateAvailable = !isUpToDate;
     }
 
-    // Save check result to database
+    // Save check result to database using canonical full container ID
+    const canonicalId = info.Id || containerId;
+    const containerName = (info.Name || '').replace(/^\//, '');
+
     db.prepare(`
       INSERT INTO containers_meta (id, name, last_checked_at, last_remote_digest, update_available)
       VALUES (?, ?, CURRENT_TIMESTAMP, ?, ?)
@@ -165,13 +173,17 @@ export class DockerService {
         last_remote_digest = ?,
         update_available = ?
     `).run(
-      containerId,
-      info.Name.replace(/^\//, ''),
+      canonicalId,
+      containerName,
       remoteDigest || '',
       updateAvailable ? 1 : 0,
       remoteDigest || '',
       updateAvailable ? 1 : 0
     );
+
+    if (canonicalId !== containerId) {
+      db.prepare('DELETE FROM containers_meta WHERE id = ?').run(containerId);
+    }
 
     return { updateAvailable, currentDigest, remoteDigest: remoteDigest || undefined };
   }
@@ -293,7 +305,7 @@ export class DockerService {
       }
 
       // Reset update_available flag in DB
-      db.prepare('UPDATE containers_meta SET update_available = 0 WHERE id = ?').run(containerId);
+      db.prepare('UPDATE containers_meta SET update_available = 0 WHERE id = ? OR name = ?').run(containerId, originalName);
 
       // Record update history
       db.prepare(`
