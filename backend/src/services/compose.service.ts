@@ -4,7 +4,7 @@ import { execa } from 'execa';
 import { db, getSetting } from '../db/database';
 import { ComposeProjectItem } from '../types';
 import { sseManager } from '../utils/sse';
-import { docker } from './docker.service';
+import { docker, DockerService } from './docker.service';
 
 export class ComposeService {
   /**
@@ -31,6 +31,19 @@ export class ComposeService {
   public static async listProjects(): Promise<ComposeProjectItem[]> {
     const projectsMap = new Map<string, ComposeProjectItem>();
 
+    // Query container metadata to aggregate update statuses from underlying containers
+    const containerMetaRows = db.prepare('SELECT id, name, update_available, last_checked_at FROM containers_meta').all() as any[];
+    const containerMetaMap = new Map<string, any>();
+    containerMetaRows.forEach(r => {
+      if (r.id) {
+        containerMetaMap.set(r.id, r);
+        containerMetaMap.set(r.id.slice(0, 12), r);
+      }
+      if (r.name) {
+        containerMetaMap.set(r.name.replace(/^\//, ''), r);
+      }
+    });
+
     // 1. Discover from active/existing Docker containers
     if (docker) {
       try {
@@ -50,6 +63,8 @@ export class ComposeService {
                 status: 'stopped',
                 containers: [],
                 updateAvailable: false,
+                updatedServices: [],
+                updateCount: 0,
                 isIgnored: false
               };
               projectsMap.set(project, item);
@@ -59,10 +74,25 @@ export class ComposeService {
               item.services.push(service);
             }
             const rawName = (c.Names && c.Names[0]) || c.Id;
-            item.containers.push(rawName.replace(/^\//, ''));
+            const cleanName = rawName.replace(/^\//, '');
+            item.containers.push(cleanName);
 
             if (c.State === 'running') {
               item.status = item.status === 'stopped' ? 'partially_running' : 'running';
+            }
+
+            // Aggregate update status from container metadata
+            const cMeta = containerMetaMap.get(c.Id) || 
+                          containerMetaMap.get(c.Id.slice(0, 12)) || 
+                          containerMetaMap.get(cleanName);
+            if (cMeta && cMeta.update_available) {
+              item.updateAvailable = true;
+              if (service && item.updatedServices && !item.updatedServices.includes(service)) {
+                item.updatedServices.push(service);
+              }
+              if (cMeta.last_checked_at && (!item.lastCheckedAt || cMeta.last_checked_at > item.lastCheckedAt)) {
+                item.lastCheckedAt = cMeta.last_checked_at;
+              }
             }
           }
         }
@@ -88,6 +118,8 @@ export class ComposeService {
         status: 'running',
         containers: ['downloader-qbittorrent-1', 'downloader-aria2-1'],
         updateAvailable: true,
+        updatedServices: ['qbittorrent'],
+        updateCount: 1,
         isIgnored: false,
         lastCheckedAt: new Date().toISOString()
       });
@@ -98,6 +130,8 @@ export class ComposeService {
         status: 'running',
         containers: ['gateway-nginx-1', 'gateway-certbot-1'],
         updateAvailable: false,
+        updatedServices: [],
+        updateCount: 0,
         isIgnored: false,
         lastCheckedAt: new Date().toISOString()
       });
@@ -113,9 +147,17 @@ export class ComposeService {
       const meta = metaMap.get(name);
       if (meta) {
         item.isIgnored = !!meta.is_ignored;
-        item.updateAvailable = !!meta.update_available;
-        item.lastCheckedAt = meta.last_checked_at;
+        if (meta.update_available) {
+          item.updateAvailable = true;
+        }
+        if (meta.last_checked_at && (!item.lastCheckedAt || meta.last_checked_at > item.lastCheckedAt)) {
+          item.lastCheckedAt = meta.last_checked_at;
+        }
       }
+      if (!item.updatedServices) {
+        item.updatedServices = [];
+      }
+      item.updateCount = item.updatedServices.length || (item.updateAvailable ? 1 : 0);
       result.push(item);
     }
 
@@ -151,6 +193,8 @@ export class ComposeService {
             status: 'stopped',
             containers: [],
             updateAvailable: false,
+            updatedServices: [],
+            updateCount: 0,
             isIgnored: false
           });
         }
@@ -253,6 +297,18 @@ export class ComposeService {
         ON CONFLICT(name) DO UPDATE SET update_available = 0, last_checked_at = CURRENT_TIMESTAMP
       `).run(projectName, filePath);
 
+      // Reset update_available in containers_meta for all containers in this compose project
+      if (docker) {
+        try {
+          const containers = await docker.listContainers({ all: true });
+          for (const c of containers) {
+            if (c.Labels && c.Labels['com.docker.compose.project'] === projectName) {
+              db.prepare('UPDATE containers_meta SET update_available = 0 WHERE id = ?').run(c.Id);
+            }
+          }
+        } catch {}
+      }
+
       db.prepare(`
         INSERT INTO update_history (target_type, target_name, status, log_text)
         VALUES ('compose', ?, 'success', 'Compose 项目更新成功')
@@ -266,5 +322,97 @@ export class ComposeService {
       `).run(projectName, upErr.message);
       throw upErr;
     }
+  }
+
+  /**
+   * Check update for a single compose project by checking its underlying containers
+   */
+  public static async checkProjectUpdate(projectName: string): Promise<{
+    updateAvailable: boolean;
+    updatedServices: string[];
+    updateCount: number;
+  }> {
+    const updatedServices: string[] = [];
+
+    // Demo mode support
+    if (!docker && getSetting('demoMode', false)) {
+      if (projectName === 'downloader') {
+        updatedServices.push('qbittorrent');
+        return { updateAvailable: true, updatedServices, updateCount: 1 };
+      }
+      return { updateAvailable: false, updatedServices: [], updateCount: 0 };
+    }
+
+    if (!docker) throw new Error('Docker daemon not connected');
+
+    const containers = await docker.listContainers({ all: true });
+    const targetContainers = containers.filter(
+      c => c.Labels && c.Labels['com.docker.compose.project'] === projectName
+    );
+
+    if (targetContainers.length === 0) {
+      return { updateAvailable: false, updatedServices: [], updateCount: 0 };
+    }
+
+    for (const c of targetContainers) {
+      const service = c.Labels ? c.Labels['com.docker.compose.service'] : null;
+      try {
+        const checkRes = await DockerService.checkContainerUpdate(c.Id);
+        if (checkRes.updateAvailable && service && !updatedServices.includes(service)) {
+          updatedServices.push(service);
+        }
+      } catch (err: any) {
+        console.warn(`[Compose] 检查项目 ${projectName} 容器 ${c.Id} 更新失败:`, err.message);
+      }
+    }
+
+    const hasUpdate = updatedServices.length > 0;
+
+    // Persist into compose_projects
+    db.prepare(`
+      INSERT INTO compose_projects (name, path, last_checked_at, update_available)
+      VALUES (?, '', CURRENT_TIMESTAMP, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        last_checked_at = CURRENT_TIMESTAMP,
+        update_available = ?
+    `).run(projectName, hasUpdate ? 1 : 0, hasUpdate ? 1 : 0);
+
+    return {
+      updateAvailable: hasUpdate,
+      updatedServices,
+      updateCount: updatedServices.length
+    };
+  }
+
+  /**
+   * Check updates for all discovered compose projects
+   */
+  public static async checkAllProjectsUpdate(): Promise<{
+    total: number;
+    withUpdates: string[];
+    results: Record<string, any>;
+  }> {
+    const projects = await this.listProjects();
+    const withUpdates: string[] = [];
+    const results: Record<string, any> = {};
+
+    for (const p of projects) {
+      if (p.isIgnored) continue;
+      try {
+        const res = await this.checkProjectUpdate(p.name);
+        results[p.name] = res;
+        if (res.updateAvailable) {
+          withUpdates.push(p.name);
+        }
+      } catch (err: any) {
+        results[p.name] = { error: err.message };
+      }
+    }
+
+    return {
+      total: projects.length,
+      withUpdates,
+      results
+    };
   }
 }

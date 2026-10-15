@@ -60,6 +60,22 @@ export async function composeRoutes(fastify: FastifyInstance) {
     return { sessionId: actualSessionId, message: 'Compose 升级任务已启动' };
   });
 
+  // Batch check updates for all compose projects
+  fastify.post('/check-all', async () => {
+    const result = await ComposeService.checkAllProjectsUpdate();
+    return { data: result };
+  });
+
+  // Check update for single compose project
+  fastify.post('/:name/check', async (req: FastifyRequest<{ Params: { name: string } }>, reply: FastifyReply) => {
+    try {
+      const result = await ComposeService.checkProjectUpdate(req.params.name);
+      return result;
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message });
+    }
+  });
+
   // Toggle ignore for compose project
   fastify.post('/:name/toggle-ignore', async (req: FastifyRequest<{ Params: { name: string } }>) => {
     const { name } = req.params;

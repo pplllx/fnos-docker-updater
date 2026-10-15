@@ -26,6 +26,8 @@ export interface ComposeProjectItem {
   status: 'running' | 'partially_running' | 'stopped';
   containers: string[];
   updateAvailable: boolean;
+  updatedServices?: string[];
+  updateCount?: number;
   isIgnored: boolean;
   lastCheckedAt?: string;
 }

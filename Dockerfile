@@ -40,7 +40,7 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
     && apk add --no-cache docker-cli docker-cli-compose tzdata
 
 ENV NODE_ENV=production
-ENV PORT=5678
+ENV PORT=5688
 ENV HOST=0.0.0.0
 ENV DB_PATH=/data/data.db
 
@@ -51,7 +51,7 @@ COPY --from=backend-builder /app/backend/dist ./dist
 # Create persistent data volume
 RUN mkdir -p /data
 
-EXPOSE 5678
+EXPOSE 5688
 
 VOLUME ["/data", "/var/run/docker.sock"]
 
