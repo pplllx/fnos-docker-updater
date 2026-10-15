@@ -118,23 +118,43 @@ export class DockerService {
     const info = await container.inspect();
     const imageName = info.Config.Image;
 
-    // Get current image RepoDigests
+    // Gather all local digests: Image ID, RepoDigests
+    const localDigests = new Set<string>();
     let currentDigest = '';
     try {
       const imageInfo = await docker.getImage(info.Image).inspect();
-      if (imageInfo.RepoDigests && imageInfo.RepoDigests.length > 0) {
-        const split = imageInfo.RepoDigests[0].split('@');
-        currentDigest = split.length > 1 ? split[1] : split[0];
-      } else {
+      if (imageInfo.Id) {
         currentDigest = imageInfo.Id;
+        localDigests.add(imageInfo.Id.trim().toLowerCase());
+        localDigests.add(imageInfo.Id.replace(/^sha256:/, '').trim().toLowerCase());
+      }
+      if (imageInfo.RepoDigests && imageInfo.RepoDigests.length > 0) {
+        for (const rd of imageInfo.RepoDigests) {
+          const split = rd.split('@');
+          const d = (split.length > 1 ? split[1] : split[0]).trim().toLowerCase();
+          if (!currentDigest) currentDigest = d;
+          localDigests.add(d);
+          localDigests.add(d.replace(/^sha256:/, ''));
+        }
       }
     } catch (e) {
       currentDigest = info.Image;
     }
 
     // Query remote digest from Registry
-    const remoteDigest = await RegistryService.getRemoteDigest(imageName);
-    const updateAvailable = remoteDigest !== null && remoteDigest !== currentDigest;
+    const remoteInfo = await RegistryService.getRemoteDigestInfo(imageName);
+    let updateAvailable = false;
+    let remoteDigest = '';
+
+    if (remoteInfo) {
+      remoteDigest = remoteInfo.digest;
+      // Check if ANY of the remote digests (index, platform, or config digest) match local image digests
+      const isUpToDate = remoteInfo.allDigests.some(rd => {
+        const clean = rd.trim().toLowerCase();
+        return localDigests.has(clean) || localDigests.has(clean.replace(/^sha256:/, ''));
+      });
+      updateAvailable = !isUpToDate;
+    }
 
     // Save check result to database
     db.prepare(`

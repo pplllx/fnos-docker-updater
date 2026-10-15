@@ -44,11 +44,16 @@ export function parseImageName(imageStr: string): ParsedImage {
   };
 }
 
+export interface RemoteDigestInfo {
+  digest: string;
+  allDigests: string[];
+}
+
 export class RegistryService {
   /**
-   * Fetches remote digest for an image using Docker Registry HTTP API V2
+   * Fetches remote digest info (primary manifest digest, platform digest, and config digest)
    */
-  public static async getRemoteDigest(imageStr: string): Promise<string | null> {
+  public static async getRemoteDigestInfo(imageStr: string): Promise<RemoteDigestInfo | null> {
     const parsed = parseImageName(imageStr);
     const proxyUrl = getSetting<string>('httpProxy', '');
     const mirrors = getSetting<string[]>('registryMirrors', []);
@@ -72,9 +77,9 @@ export class RegistryService {
     let lastError: any = null;
     for (const endpoint of endpointsToTry) {
       try {
-        const digest = await this.queryRegistryDigest(endpoint, parsed.repository, parsed.tag, proxyUrl);
-        if (digest) {
-          return digest;
+        const info = await this.queryRegistryDigest(endpoint, parsed.repository, parsed.tag, proxyUrl);
+        if (info) {
+          return info;
         }
       } catch (err: any) {
         lastError = err;
@@ -86,12 +91,17 @@ export class RegistryService {
     return null;
   }
 
+  public static async getRemoteDigest(imageStr: string): Promise<string | null> {
+    const info = await this.getRemoteDigestInfo(imageStr);
+    return info ? info.digest : null;
+  }
+
   private static async queryRegistryDigest(
     baseUrl: string,
     repository: string,
     tag: string,
     proxyUrl?: string
-  ): Promise<string | null> {
+  ): Promise<RemoteDigestInfo | null> {
     const manifestUrl = `${baseUrl}/v2/${repository}/manifests/${tag}`;
     const clientConfig: AxiosRequestConfig = {
       timeout: 8000,
@@ -148,18 +158,43 @@ export class RegistryService {
 
     // Extract Docker-Content-Digest header
     const digestHeader = res.headers['docker-content-digest'] || res.headers['Docker-Content-Digest'];
-    if (digestHeader) {
-      return digestHeader.trim();
-    }
+    let primaryDigest = digestHeader ? digestHeader.trim() : '';
 
-    // If header is missing, compute sha256 of the raw payload
-    if (res.data) {
+    if (!primaryDigest && res.data) {
       const content = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
       const hash = crypto.createHash('sha256').update(content).digest('hex');
-      return `sha256:${hash}`;
+      primaryDigest = `sha256:${hash}`;
     }
 
-    return null;
+    const allDigests: string[] = [];
+    if (primaryDigest) allDigests.push(primaryDigest);
+
+    // If this is a Manifest List / Index, look for the platform manifest and resolve image config digest
+    if (res.data && Array.isArray(res.data.manifests)) {
+      const targetArch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+      const platformItem = res.data.manifests.find((m: any) =>
+        m.platform?.architecture === targetArch && m.platform?.os === 'linux'
+      ) || res.data.manifests.find((m: any) => m.platform?.architecture === 'amd64') || res.data.manifests[0];
+
+      if (platformItem && platformItem.digest) {
+        allDigests.push(platformItem.digest);
+        // Fetch the platform manifest to get the image config digest
+        try {
+          const pUrl = `${baseUrl}/v2/${repository}/manifests/${platformItem.digest}`;
+          const pRes = await axios.get(pUrl, clientConfig);
+          if (pRes.data && pRes.data.config?.digest) {
+            allDigests.push(pRes.data.config.digest);
+          }
+        } catch {}
+      }
+    } else if (res.data && res.data.config?.digest) {
+      allDigests.push(res.data.config.digest);
+    }
+
+    return {
+      digest: primaryDigest,
+      allDigests
+    };
   }
 
   private static async fetchBearerToken(wwwAuthenticate: string, proxyUrl?: string): Promise<string | null> {
