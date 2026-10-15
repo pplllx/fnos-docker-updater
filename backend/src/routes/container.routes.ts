@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { db } from '../db/database';
+import { db, getSetting, setSetting } from '../db/database';
 import { DockerService } from '../services/docker.service';
 import { sseManager } from '../utils/sse';
 
@@ -10,12 +10,27 @@ export async function containerRoutes(fastify: FastifyInstance) {
   // List all containers
   fastify.get('/', async () => {
     const list = await DockerService.listContainers();
-    return { data: list };
+    return {
+      data: list,
+      dockerConnected: DockerService.isConnected(),
+      demoMode: getSetting('demoMode', false)
+    };
+  });
+
+  // Toggle demo mode
+  fastify.post('/toggle-demo', async () => {
+    const current = getSetting('demoMode', false);
+    const updated = !current;
+    setSetting('demoMode', updated);
+    return { demoMode: updated };
   });
 
   // Check update for single container
   fastify.post('/:id/check', async (req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
+      if (!DockerService.isConnected() && getSetting('demoMode', false)) {
+        return { updateAvailable: true, currentDigest: 'sha256:old123', remoteDigest: 'sha256:new456' };
+      }
       const result = await DockerService.checkContainerUpdate(req.params.id);
       return result;
     } catch (err: any) {
@@ -31,6 +46,10 @@ export async function containerRoutes(fastify: FastifyInstance) {
     for (const c of list) {
       if (c.isIgnored || c.isPinned) continue;
       try {
+        if (!DockerService.isConnected() && getSetting('demoMode', false)) {
+          results[c.id] = { updateAvailable: true };
+          continue;
+        }
         const res = await DockerService.checkContainerUpdate(c.id);
         results[c.id] = res;
       } catch (err: any) {
@@ -48,6 +67,34 @@ export async function containerRoutes(fastify: FastifyInstance) {
   }>, reply: FastifyReply) => {
     const { id } = req.params;
     const { sessionId } = req.body || { sessionId: `update-${Date.now()}` };
+
+    if (!DockerService.isConnected() && getSetting('demoMode', false)) {
+      // Simulate realistic update over SSE
+      setTimeout(async () => {
+        sseManager.emitLog(sessionId, `>>> 正在启动容器更新任务: ${id}`, 'info');
+        await new Promise(r => setTimeout(r, 400));
+        sseManager.emitLog(sessionId, `[Docker] 开始拉取最新镜像数据...`, 'info');
+        await new Promise(r => setTimeout(r, 600));
+        sseManager.emitLog(sessionId, `[layer-1] Extracting: 100% [====================] 32MB/32MB`, 'info');
+        sseManager.emitLog(sessionId, `[layer-2] Pull complete`, 'info');
+        await new Promise(r => setTimeout(r, 500));
+        sseManager.emitLog(sessionId, `[容灾保护] 停止旧容器并创建临时安全备份: ${id}_backup_${Date.now()}...`, 'info');
+        await new Promise(r => setTimeout(r, 500));
+        sseManager.emitLog(sessionId, `[重建] 正在使用新镜像重建容器配置...`, 'info');
+        await new Promise(r => setTimeout(r, 500));
+        sseManager.emitLog(sessionId, `[校验] 验证新容器运行状态...`, 'info');
+        await new Promise(r => setTimeout(r, 400));
+        sseManager.emitLog(sessionId, `[成功] 新容器运行正常！升级成功。`, 'success');
+        sseManager.emitStatus(sessionId, 'completed', 100);
+
+        db.prepare(`
+          INSERT INTO update_history (target_type, target_name, status, log_text)
+          VALUES ('container', ?, 'success', '升级成功 (演示模式)')
+        `).run(id);
+      }, 100);
+
+      return { sessionId, message: '升级任务已启动 (演示模式)' };
+    }
 
     // Run async in background while streaming logs
     DockerService.updateContainer(id, sessionId)

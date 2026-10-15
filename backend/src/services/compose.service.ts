@@ -79,6 +79,30 @@ export class ComposeService {
       }
     }
 
+    // 2.5 Demo mode fallback if empty and demo mode is active
+    if (projectsMap.size === 0 && getSetting('demoMode', false)) {
+      projectsMap.set('downloader', {
+        name: 'downloader',
+        path: '/vol1/1000/docker/downloader/docker-compose.yml',
+        services: ['qbittorrent', 'aria2', 'gluetun'],
+        status: 'running',
+        containers: ['downloader-qbittorrent-1', 'downloader-aria2-1'],
+        updateAvailable: true,
+        isIgnored: false,
+        lastCheckedAt: new Date().toISOString()
+      });
+      projectsMap.set('gateway', {
+        name: 'gateway',
+        path: '/vol1/1000/docker/gateway/compose.yaml',
+        services: ['nginx', 'certbot'],
+        status: 'running',
+        containers: ['gateway-nginx-1', 'gateway-certbot-1'],
+        updateAvailable: false,
+        isIgnored: false,
+        lastCheckedAt: new Date().toISOString()
+      });
+    }
+
     // 3. Merge database metadata
     const metaRows = db.prepare('SELECT * FROM compose_projects').all() as any[];
     const metaMap = new Map<string, any>();
@@ -147,6 +171,9 @@ export class ComposeService {
    */
   public static getComposeFileContent(filePath: string): string {
     if (!fs.existsSync(filePath)) {
+      if (getSetting('demoMode', false)) {
+        return `services:\n  qbittorrent:\n    image: linuxserver/qbittorrent:latest\n    container_name: qbittorrent\n    environment:\n      - PUID=1000\n      - PGID=1000\n      - TZ=Asia/Shanghai\n    volumes:\n      - /vol1/1000/docker/qbittorrent/config:/config\n      - /vol1/1000/downloads:/downloads\n    ports:\n      - 8085:8080\n      - 6881:6881\n    restart: unless-stopped\n`;
+      }
       throw new Error(`Compose file does not exist: ${filePath}`);
     }
     return fs.readFileSync(filePath, 'utf-8');

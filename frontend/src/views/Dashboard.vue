@@ -33,6 +33,34 @@
       </div>
     </div>
 
+    <!-- Docker Connection Banner -->
+    <div v-if="!dockerConnected" class="bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+      <div class="flex items-start space-x-3">
+        <div class="p-2 bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 rounded-lg shrink-0">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold text-blue-900 dark:text-blue-200">
+            未检测到宿主机 Docker Socket (/var/run/docker.sock)
+          </h3>
+          <p class="text-xs text-blue-700 dark:text-blue-300/80 mt-0.5">
+            当前运行在开发机环境。部署到飞牛 NAS 并挂载 <code class="bg-blue-100/60 dark:bg-blue-900/60 px-1 py-0.5 rounded font-mono">/var/run/docker.sock</code> 后将自动识别所有容器与 Compose 项目。
+          </p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2 shrink-0">
+        <el-button
+          size="small"
+          :type="demoMode ? 'default' : 'primary'"
+          @click="handleToggleDemo"
+        >
+          {{ demoMode ? '关闭演示数据' : '开启演示数据体验 UI' }}
+        </el-button>
+      </div>
+    </div>
+
     <!-- Stat Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
       <!-- Total containers -->
@@ -207,6 +235,8 @@ const containers = ref<any[]>([]);
 const composeList = ref<any[]>([]);
 const checkingAll = ref(false);
 const pruning = ref(false);
+const dockerConnected = ref(true);
+const demoMode = ref(false);
 
 const runningCount = computed(() => containers.value.filter(c => c.state === 'running').length);
 const updateCount = computed(() => containers.value.filter(c => c.updateAvailable).length);
@@ -216,11 +246,23 @@ async function loadData() {
   try {
     const cRes: any = await api.get('/containers');
     containers.value = cRes.data || [];
+    dockerConnected.value = cRes.dockerConnected !== false;
+    demoMode.value = !!cRes.demoMode;
+
     const compRes: any = await api.get('/compose');
     composeList.value = compRes.data || [];
   } catch (err: any) {
     console.error('加载仪表盘数据失败', err);
   }
+}
+
+async function handleToggleDemo() {
+  try {
+    const res: any = await api.post('/containers/toggle-demo');
+    demoMode.value = res.demoMode;
+    ElMessage.success(res.demoMode ? '已开启演示数据' : '已关闭演示数据');
+    await loadData();
+  } catch {}
 }
 
 async function handleCheckAll() {

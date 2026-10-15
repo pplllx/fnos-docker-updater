@@ -39,6 +39,9 @@ export class DockerService {
 
   public static async listContainers(): Promise<ContainerItem[]> {
     if (!docker) {
+      if (getSetting('demoMode', false)) {
+        return this.getDemoContainers();
+      }
       return [];
     }
 
@@ -310,7 +313,117 @@ export class DockerService {
   }
 
   public static async pruneImages(): Promise<any> {
-    if (!docker) throw new Error('Docker daemon not connected');
+    if (!docker) {
+      if (getSetting('demoMode', false)) {
+        return { ImagesDeleted: [{ Deleted: 'sha256:mock123' }], SpaceReclaimed: 450000000 };
+      }
+      throw new Error('Docker daemon not connected');
+    }
     return await docker.pruneImages();
   }
+
+  public static getDemoContainers(): ContainerItem[] {
+    const metaRows = db.prepare('SELECT * FROM containers_meta').all() as any[];
+    const metaMap = new Map<string, any>();
+    metaRows.forEach(r => metaMap.set(r.id, r));
+
+    const demos: ContainerItem[] = [
+      {
+        id: 'demo-c1-vaultwarden',
+        name: 'vaultwarden',
+        image: 'vaultwarden/server',
+        imageId: 'sha256:1a2b3c4d5e',
+        tag: 'latest',
+        status: 'Up 3 days (healthy)',
+        state: 'running',
+        created: Math.floor(Date.now() / 1000) - 259200,
+        isCompose: false,
+        ports: ['8080:80/tcp'],
+        updateAvailable: true,
+        isIgnored: false,
+        isPinned: false,
+        lastCheckedAt: new Date().toISOString()
+      },
+      {
+        id: 'demo-c2-homeassistant',
+        name: 'home-assistant',
+        image: 'ghcr.io/home-assistant/home-assistant',
+        imageId: 'sha256:2b3c4d5e6f',
+        tag: '2024.10.2',
+        status: 'Up 5 hours',
+        state: 'running',
+        created: Math.floor(Date.now() / 1000) - 18000,
+        isCompose: false,
+        ports: ['8123:8123/tcp'],
+        updateAvailable: false,
+        isIgnored: false,
+        isPinned: false,
+        lastCheckedAt: new Date().toISOString()
+      },
+      {
+        id: 'demo-c3-qbittorrent',
+        name: 'qbittorrent-nox',
+        image: 'linuxserver/qbittorrent',
+        imageId: 'sha256:3c4d5e6f7a',
+        tag: 'latest',
+        status: 'Up 12 days',
+        state: 'running',
+        created: Math.floor(Date.now() / 1000) - 1036800,
+        isCompose: true,
+        composeProject: 'downloader',
+        composeFile: '/vol1/1000/docker/downloader/docker-compose.yml',
+        ports: ['8085:8080/tcp', '6881:6881/tcp'],
+        updateAvailable: true,
+        isIgnored: false,
+        isPinned: false,
+        lastCheckedAt: new Date().toISOString()
+      },
+      {
+        id: 'demo-c4-emby',
+        name: 'emby-server',
+        image: 'emby/embyserver',
+        imageId: 'sha256:4d5e6f7a8b',
+        tag: '4.8.10.0',
+        status: 'Up 2 days',
+        state: 'running',
+        created: Math.floor(Date.now() / 1000) - 172800,
+        isCompose: false,
+        ports: ['8096:8096/tcp'],
+        updateAvailable: false,
+        isIgnored: false,
+        isPinned: true,
+        lastCheckedAt: new Date().toISOString()
+      },
+      {
+        id: 'demo-c5-nginx',
+        name: 'nginx-gateway',
+        image: 'nginx',
+        imageId: 'sha256:5e6f7a8b9c',
+        tag: 'alpine',
+        status: 'Up 8 days',
+        state: 'running',
+        created: Math.floor(Date.now() / 1000) - 691200,
+        isCompose: true,
+        composeProject: 'gateway',
+        composeFile: '/vol1/1000/docker/gateway/compose.yaml',
+        ports: ['80:80/tcp', '443:443/tcp'],
+        updateAvailable: false,
+        isIgnored: false,
+        isPinned: false,
+        lastCheckedAt: new Date().toISOString()
+      }
+    ];
+
+    demos.forEach(d => {
+      const meta = metaMap.get(d.id);
+      if (meta) {
+        if (meta.is_ignored !== undefined) d.isIgnored = !!meta.is_ignored;
+        if (meta.is_pinned !== undefined) d.isPinned = !!meta.is_pinned;
+        if (meta.update_available !== undefined) d.updateAvailable = !!meta.update_available;
+      }
+    });
+
+    return demos;
+  }
 }
+
