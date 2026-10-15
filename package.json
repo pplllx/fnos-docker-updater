@@ -1,0 +1,27 @@
+{
+  "name": "fnos-docker-updater",
+  "version": "1.0.0",
+  "description": "Docker & Docker Compose update management panel for fnOS and Linux NAS",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "build": "npm run build:frontend && npm run build:backend",
+    "start": "npm --prefix backend start"
+  },
+  "keywords": [
+    "fnos",
+    "nas",
+    "docker",
+    "docker-compose",
+    "update-panel"
+  ],
+  "author": "",
+  "license": "MIT"
+}

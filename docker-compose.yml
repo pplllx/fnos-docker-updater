@@ -1,0 +1,23 @@
+services:
+  fnos-docker-updater:
+    image: pengpenglu/fnos-docker-updater:latest
+    # Or build locally:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: fnos-docker-updater
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      # 挂载宿主机 Docker Socket 以读取和管理容器
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 挂载 SQLite 数据库及配置持久化目录
+      - ./data:/data
+      # 挂载飞牛 NAS 存储卷（用于自动扫描和管理 Compose 项目，可根据实际卷路径调整）
+      - /vol1:/vol1
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=5678
+      - HOST=0.0.0.0
+      - JWT_SECRET=fnos-updater-secure-secret-please-change
