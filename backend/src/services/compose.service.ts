@@ -375,17 +375,20 @@ export class ComposeService {
       return { updateAvailable: false, updatedServices: [], updateCount: 0 };
     }
 
-    for (const c of targetContainers) {
-      const service = c.Labels ? c.Labels['com.docker.compose.service'] : null;
-      try {
-        const checkRes = await DockerService.checkContainerUpdate(c.Id);
-        if (checkRes.updateAvailable && service && !updatedServices.includes(service)) {
-          updatedServices.push(service);
+    // Concurrently check target containers
+    await Promise.allSettled(
+      targetContainers.map(async (c) => {
+        const service = c.Labels ? c.Labels['com.docker.compose.service'] : null;
+        try {
+          const checkRes = await DockerService.checkContainerUpdate(c.Id);
+          if (checkRes.updateAvailable && service && !updatedServices.includes(service)) {
+            updatedServices.push(service);
+          }
+        } catch (err: any) {
+          console.warn(`[Compose] 检查项目 ${projectName} 容器 ${c.Id} 更新失败:`, err.message);
         }
-      } catch (err: any) {
-        console.warn(`[Compose] 检查项目 ${projectName} 容器 ${c.Id} 更新失败:`, err.message);
-      }
-    }
+      })
+    );
 
     const hasUpdate = updatedServices.length > 0;
 
@@ -406,9 +409,9 @@ export class ComposeService {
   }
 
   /**
-   * Check updates for all discovered compose projects
+   * Check updates for all discovered compose projects with controlled concurrency
    */
-  public static async checkAllProjectsUpdate(): Promise<{
+  public static async checkAllProjectsUpdate(concurrency = 6): Promise<{
     total: number;
     withUpdates: string[];
     results: Record<string, any>;
@@ -417,17 +420,24 @@ export class ComposeService {
     const withUpdates: string[] = [];
     const results: Record<string, any> = {};
 
-    for (const p of projects) {
-      if (p.isIgnored) continue;
-      try {
-        const res = await this.checkProjectUpdate(p.name);
-        results[p.name] = res;
-        if (res.updateAvailable) {
-          withUpdates.push(p.name);
-        }
-      } catch (err: any) {
-        results[p.name] = { error: err.message };
-      }
+    const activeProjects = projects.filter(p => !p.isIgnored);
+
+    // Process in batches with concurrency limit to prevent timeout
+    for (let i = 0; i < activeProjects.length; i += concurrency) {
+      const batch = activeProjects.slice(i, i + concurrency);
+      await Promise.allSettled(
+        batch.map(async (p) => {
+          try {
+            const res = await this.checkProjectUpdate(p.name);
+            results[p.name] = res;
+            if (res.updateAvailable) {
+              withUpdates.push(p.name);
+            }
+          } catch (err: any) {
+            results[p.name] = { error: err.message };
+          }
+        })
+      );
     }
 
     return {

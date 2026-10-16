@@ -395,7 +395,7 @@ async function loadProjects() {
 async function checkAllUpdates() {
   checkingAll.value = true;
   try {
-    const res: any = await api.post('/compose/check-all');
+    const res: any = await api.post('/compose/check-all', {}, { timeout: 120000 });
     await loadProjects();
     const count = res.data?.withUpdates?.length || 0;
     if (count > 0) {
@@ -417,7 +417,7 @@ async function checkAllUpdates() {
 async function checkSingleProject(proj: any) {
   checkingProjects.value[proj.name] = true;
   try {
-    const res: any = await api.post(`/compose/${proj.name}/check`);
+    const res: any = await api.post(`/compose/${proj.name}/check`, {}, { timeout: 45000 });
     await loadProjects();
     if (res.updateAvailable) {
       ElMessage.warning(`项目【${proj.name}】检测到新版本更新！`);

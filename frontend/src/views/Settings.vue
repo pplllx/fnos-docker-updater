@@ -60,10 +60,31 @@
 
             <div>
               <label class="block text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">
-                巡检周期 (Cron 表达式)
+                巡检周期设置 (后台自动检测)
               </label>
-              <p class="text-xs text-slate-500 mb-2">标准 5 位 Cron 表达式。例如 "0 3 * * *" 表示每天凌晨 3:00 自动巡检</p>
-              <el-input v-model="settings.cronSchedule" class="font-mono" />
+              <p class="text-xs text-slate-500 mb-2">
+                选择常用巡检间隔。系统将在后台自动检查所有容器与 Compose 项目并保存状态，无需手动点击全部检查
+              </p>
+              <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+                <el-select
+                  v-model="cronPreset"
+                  @change="handlePresetChange"
+                  class="!w-64"
+                  placeholder="选择常用预设"
+                >
+                  <el-option label="每 1 小时自动检查" value="0 * * * *" />
+                  <el-option label="每 2 小时自动检查" value="0 */2 * * *" />
+                  <el-option label="每 6 小时自动检查 (推荐)" value="0 */6 * * *" />
+                  <el-option label="每 12 小时自动检查" value="0 */12 * * *" />
+                  <el-option label="每天凌晨 3:00 自动检查" value="0 3 * * *" />
+                  <el-option label="自定义 Cron 表达式" value="custom" />
+                </el-select>
+                <el-input
+                  v-model="settings.cronSchedule"
+                  placeholder="0 */6 * * *"
+                  class="font-mono flex-1"
+                />
+              </div>
             </div>
 
             <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-4">
@@ -273,6 +294,22 @@ const settings = reactive<any>({
 const mirrorsText = ref('');
 const scanPathsText = ref('');
 const channels = ref<any[]>([]);
+const cronPreset = ref('0 */6 * * *');
+
+function updatePresetFromSchedule(schedule: string) {
+  const common = ['0 * * * *', '0 */2 * * *', '0 */6 * * *', '0 */12 * * *', '0 3 * * *'];
+  if (common.includes(schedule)) {
+    cronPreset.value = schedule;
+  } else {
+    cronPreset.value = 'custom';
+  }
+}
+
+function handlePresetChange(val: string) {
+  if (val !== 'custom') {
+    settings.cronSchedule = val;
+  }
+}
 
 const channelModalVisible = ref(false);
 const editingChannel = ref<any>(null);
@@ -290,6 +327,7 @@ async function loadSettings() {
     Object.assign(settings, res);
     mirrorsText.value = (res.registryMirrors || []).join('\n');
     scanPathsText.value = (res.composeScanPaths || []).join('\n');
+    updatePresetFromSchedule(res.cronSchedule || '0 3 * * *');
 
     const chRes: any = await api.get('/system/notifications');
     channels.value = chRes.data || [];
@@ -316,7 +354,10 @@ async function triggerRunCron() {
   runningCron.value = true;
   try {
     const res: any = await api.post('/system/cron/run-now');
-    ElMessage.success(`巡检完成: 检查了 ${res.result?.containersChecked || 0} 个容器`);
+    const cCount = res.result?.containersChecked || 0;
+    const pCount = res.result?.composeChecked || 0;
+    const uCount = (res.result?.containersWithUpdates?.length || 0) + (res.result?.composeWithUpdates?.length || 0);
+    ElMessage.success(`巡检完成: 检查了 ${pCount} 个 Compose 项目及 ${cCount} 个容器，发现 ${uCount} 处可更新`);
   } catch {
   } finally {
     runningCron.value = false;
