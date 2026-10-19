@@ -4,10 +4,21 @@
 
 :root {
   --el-color-primary: #2563eb;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 9999px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .dark {
   --el-color-primary: #3b82f6;
+  --el-bg-color: #0f172a;
+  --el-bg-color-overlay: #1e293b;
+  --el-border-color: #334155;
+  --el-border-color-light: #1e293b;
+  --el-fill-color-blank: #1e293b;
   color-scheme: dark;
 }
 
@@ -23,9 +34,31 @@
 
 ::-webkit-scrollbar-thumb {
   background: rgba(156, 163, 175, 0.4);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(156, 163, 175, 0.7);
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Element Plus Custom Overrides */
+.el-dialog {
+  border-radius: 1rem !important;
+}
+
+.dark .el-dialog {
+  background-color: #0f172a !important;
+  border: 1px solid rgba(51, 65, 85, 0.7) !important;
+}
+
+.dark .el-dialog__title {
+  color: #f8fafc !important;
 }

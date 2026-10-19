@@ -2,32 +2,56 @@
   <el-dialog
     v-model="appStore.terminalVisible"
     :title="appStore.terminalTitle"
-    width="800px"
+    width="94%"
+    class="terminal-dialog !rounded-2xl overflow-hidden"
+    style="max-width: 860px;"
     destroy-on-close
     :before-close="handleClose"
-    class="terminal-dialog rounded-xl overflow-hidden"
   >
-    <div class="bg-slate-950 text-slate-100 rounded-lg p-4 font-mono text-xs h-[480px] flex flex-col shadow-inner">
-      <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-slate-400">
+    <div class="bg-slate-950 text-slate-100 rounded-xl p-3.5 sm:p-4 font-mono text-xs h-[420px] sm:h-[500px] flex flex-col shadow-2xl border border-slate-800">
+      <!-- Terminal Window Bar -->
+      <div class="flex flex-wrap items-center justify-between pb-2.5 mb-2 border-b border-slate-800/80 text-slate-400 gap-2">
         <div class="flex items-center space-x-2">
-          <span class="w-3 h-3 rounded-full bg-red-500/80 inline-block"></span>
-          <span class="w-3 h-3 rounded-full bg-yellow-500/80 inline-block"></span>
-          <span class="w-3 h-3 rounded-full bg-green-500/80 inline-block"></span>
-          <span class="ml-2 font-sans font-semibold text-slate-300">Live Execution Terminal</span>
+          <span class="w-3 h-3 rounded-full bg-rose-500/90 inline-block shadow-xs"></span>
+          <span class="w-3 h-3 rounded-full bg-amber-500/90 inline-block shadow-xs"></span>
+          <span class="w-3 h-3 rounded-full bg-emerald-500/90 inline-block shadow-xs"></span>
+          <span class="ml-2 font-sans font-semibold text-slate-300 text-xs hidden sm:inline">Live Execution Stream</span>
         </div>
-        <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-3 text-xs">
           <span v-if="isConnected" class="flex items-center text-emerald-400">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5"></span> 已连接
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mr-1.5"></span>
+            <span>已连接</span>
           </span>
-          <span v-else class="text-slate-500">连接已断开</span>
-          <button @click="copyLogs" class="hover:text-white transition">复制日志</button>
-          <button @click="clearLogs" class="hover:text-white transition">清屏</button>
+          <span v-else class="text-slate-500 flex items-center">
+            <span class="w-2 h-2 rounded-full bg-slate-600 mr-1.5"></span>
+            <span>连接断开</span>
+          </span>
+
+          <button
+            @click="copyLogs"
+            class="flex items-center space-x-1 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 hover:text-white text-slate-300 transition border border-slate-800"
+            title="复制终端全部日志"
+          >
+            <Copy class="w-3 h-3" />
+            <span class="hidden sm:inline">复制</span>
+          </button>
+
+          <button
+            @click="clearLogs"
+            class="flex items-center space-x-1 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 hover:text-white text-slate-300 transition border border-slate-800"
+            title="清空当前屏幕"
+          >
+            <Trash2 class="w-3 h-3" />
+            <span class="hidden sm:inline">清屏</span>
+          </button>
         </div>
       </div>
 
-      <div ref="logContainer" class="flex-1 overflow-y-auto space-y-1 select-text">
-        <div v-if="logs.length === 0" class="text-slate-500 py-4 text-center">
-          正在建立日志推流连接，请稍候...
+      <!-- Log Content Area -->
+      <div ref="logContainer" class="flex-1 overflow-y-auto space-y-1.5 select-text pr-1 font-mono text-[11px] sm:text-xs">
+        <div v-if="logs.length === 0" class="text-slate-500 py-8 text-center flex flex-col items-center justify-center space-y-2">
+          <div class="w-6 h-6 border-2 border-slate-700 border-t-blue-500 rounded-full animate-spin"></div>
+          <span>正在建立日志推流连接，请稍候...</span>
         </div>
         <div
           v-for="(log, idx) in logs"
@@ -47,9 +71,11 @@
     </div>
 
     <template #footer>
-      <div class="flex justify-between items-center">
-        <span class="text-xs text-slate-500">操作正在后台执行，关闭窗口不会中断任务</span>
-        <el-button @click="handleClose">关闭窗口</el-button>
+      <div class="flex flex-col sm:flex-row justify-between items-center gap-2 pt-1">
+        <span class="text-xs text-slate-500 dark:text-slate-400 text-center sm:text-left">
+          💡 操作在后台容器持续运行，关闭此弹窗不会中断升级或拉取任务
+        </span>
+        <el-button @click="handleClose" class="!rounded-lg w-full sm:w-auto">关闭窗口</el-button>
       </div>
     </template>
   </el-dialog>
@@ -58,6 +84,7 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
+import { Copy, Trash2 } from 'lucide-vue-next';
 import { useAppStore } from '../stores/app';
 
 interface LogItem {

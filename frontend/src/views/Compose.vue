@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-6">
     <!-- Header -->
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
       <div>
         <div class="flex items-center space-x-3">
           <h1 class="text-xl font-bold text-slate-900 dark:text-white">Compose 项目编排</h1>
@@ -23,7 +23,7 @@
         </p>
       </div>
 
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="flex flex-wrap items-center gap-2.5">
         <!-- Filter Tabs -->
         <el-radio-group v-model="filterMode" size="default">
           <el-radio-button label="all">全部 ({{ projects.length }})</el-radio-button>
@@ -45,12 +45,10 @@
           v-model="searchQuery"
           placeholder="搜索项目或服务..."
           clearable
-          class="!w-48 sm:!w-56"
+          class="!w-44 sm:!w-52 !rounded-xl"
         >
           <template #prefix>
-            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <Search class="w-4 h-4 text-slate-400" />
           </template>
         </el-input>
 
@@ -59,12 +57,10 @@
           type="warning"
           :loading="checkingAll"
           @click="checkAllUpdates"
-          class="!rounded-lg !bg-amber-500 !border-amber-500 hover:!bg-amber-600 !text-white font-medium"
+          class="!rounded-xl !bg-amber-500 !border-amber-500 hover:!bg-amber-600 !text-white font-medium shadow-sm shadow-amber-500/20"
         >
           <template #icon>
-            <svg class="w-4 h-4 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
+            <Zap class="w-4 h-4 mr-0.5" />
           </template>
           检查全部更新
         </el-button>
@@ -73,8 +69,11 @@
         <el-button
           :loading="loading"
           @click="loadProjects"
-          class="!rounded-lg"
+          class="!rounded-xl"
         >
+          <template #icon>
+            <RefreshCw class="w-4 h-4 mr-1 text-slate-400" :class="{ 'animate-spin': loading }" />
+          </template>
           刷新
         </el-button>
       </div>
@@ -83,10 +82,10 @@
     <!-- Targeted project notice banner -->
     <div
       v-if="targetedProject"
-      class="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+      class="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
     >
       <div class="flex items-center space-x-3">
-        <div class="w-9 h-9 rounded-lg bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold shrink-0 text-base">
+        <div class="w-9 h-9 rounded-xl bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold shrink-0 text-base">
           🎯
         </div>
         <div>
@@ -98,23 +97,32 @@
           </p>
         </div>
       </div>
-      <el-button size="small" @click="clearTargetedProject" class="shrink-0">
+      <el-button size="small" @click="clearTargetedProject" class="shrink-0 !rounded-lg">
         显示全部项目 ({{ projects.length }})
       </el-button>
     </div>
 
+    <!-- Projects Grid Loading Skeleton -->
+    <div v-if="loading && projects.length === 0" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div v-for="i in 4" :key="i" class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700">
+        <el-skeleton :rows="4" animated />
+      </div>
+    </div>
+
     <!-- Projects Grid -->
-    <div v-loading="loading" class="grid grid-cols-1 md:grid-cols-2 gap-5">
-      <div v-if="filteredProjects.length === 0 && !loading" class="col-span-full bg-white dark:bg-slate-800 p-12 rounded-xl border border-slate-200 dark:border-slate-700 text-center">
-        <svg class="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
-        </svg>
-        <p class="text-slate-500 dark:text-slate-400 font-medium">
-          {{ filterMode === 'updates' ? '当前暂无可更新的 Compose 项目' : '未找到匹配的 Docker Compose 项目' }}
-        </p>
-        <p class="text-xs text-slate-400 dark:text-slate-500 mt-1">
-          可在“系统设置 -> Compose 扫描目录”中添加飞牛存储路径（如 /vol1/1000/docker 等）扫描离线项目
-        </p>
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <!-- Empty state -->
+      <div v-if="filteredProjects.length === 0" class="col-span-full bg-white dark:bg-slate-800 p-12 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-center">
+        <el-empty
+          :description="filterMode === 'updates' ? '当前暂无可更新的 Compose 项目' : '未找到匹配的 Docker Compose 项目'"
+          :image-size="80"
+        >
+          <template #extra>
+            <p class="text-xs text-slate-400 dark:text-slate-500 mt-1 max-w-md mx-auto">
+              可在「系统设置 -> Compose 扫描目录」中添加飞牛存储路径（如 /vol1/1000/docker 等）扫描自动发现离线编排项目
+            </p>
+          </template>
+        </el-empty>
       </div>
 
       <div
@@ -122,15 +130,15 @@
         :key="proj.name"
         :id="'project-' + proj.name"
         :class="[
-          'bg-white dark:bg-slate-800 rounded-xl border p-5 flex flex-col justify-between space-y-4 transition-all duration-300 relative overflow-hidden',
+          'bg-white dark:bg-slate-800 rounded-2xl border p-5 sm:p-6 flex flex-col justify-between space-y-4 transition-all duration-300 relative overflow-hidden',
           isTargeted(proj.name)
             ? 'border-purple-500 ring-2 ring-purple-500/50 shadow-lg shadow-purple-500/10'
             : proj.updateAvailable
               ? 'border-amber-400 dark:border-amber-500/80 ring-2 ring-amber-400/20 shadow-md shadow-amber-500/5 bg-gradient-to-b from-amber-500/[0.03] to-transparent'
-              : 'border-slate-200 dark:border-slate-700/60 shadow-sm hover:shadow-md'
+              : 'border-slate-200/80 dark:border-slate-700/60 shadow-xs hover:shadow-md'
         ]"
       >
-        <!-- Update Ribbon corner (optional decorative hint) -->
+        <!-- Update Ribbon corner (decorative hint) -->
         <div
           v-if="proj.updateAvailable"
           class="absolute -top-6 -right-6 w-12 h-12 bg-amber-500/10 dark:bg-amber-500/20 rounded-full blur-md pointer-events-none"
@@ -142,7 +150,7 @@
             <div class="flex items-center space-x-2.5 min-w-0">
               <div
                 :class="[
-                  'w-8 h-8 rounded-lg flex items-center justify-center font-bold shrink-0',
+                  'w-9 h-9 rounded-xl flex items-center justify-center font-bold shrink-0',
                   isTargeted(proj.name)
                     ? 'bg-purple-600 text-white shadow-sm'
                     : proj.updateAvailable
@@ -150,9 +158,7 @@
                       : 'bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400'
                 ]"
               >
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
-                </svg>
+                <Layers class="w-4 h-4" />
               </div>
               <div class="min-w-0">
                 <div class="flex items-center space-x-2">
@@ -188,7 +194,7 @@
                 <!-- Highlighted tag for updated service -->
                 <span
                   v-if="isServiceUpdated(proj, svc)"
-                  class="px-2 py-0.5 rounded text-xs font-mono font-medium bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 flex items-center space-x-1 shadow-2xs"
+                  class="px-2 py-0.5 rounded-md text-xs font-mono font-medium bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 flex items-center space-x-1 shadow-2xs"
                   title="该服务关联的镜像在远端仓库有新版本"
                 >
                   <span>{{ svc }}</span>
@@ -198,7 +204,7 @@
                 <!-- Normal tag for up-to-date service -->
                 <span
                   v-else
-                  class="px-2 py-0.5 rounded text-xs font-mono bg-slate-100 dark:bg-slate-700/70 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600/50"
+                  class="px-2 py-0.5 rounded-md text-xs font-mono bg-slate-100 dark:bg-slate-700/70 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600/50"
                 >
                   {{ svc }}
                 </span>
@@ -212,7 +218,7 @@
         </div>
 
         <!-- Bottom action bar -->
-        <div class="pt-3 border-t border-slate-100 dark:border-slate-700/50 flex items-center justify-between gap-2">
+        <div class="pt-3 border-t border-slate-100 dark:border-slate-700/50 flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-center space-x-2 text-xs text-slate-400">
             <span>关联容器: {{ proj.containers.length }} 个</span>
             <span class="text-slate-300 dark:text-slate-600">|</span>
@@ -222,12 +228,9 @@
                 :disabled="checkingProjects[proj.name]"
                 class="hover:text-amber-600 dark:hover:text-amber-400 flex items-center space-x-1 transition cursor-pointer"
               >
-                <svg
+                <RefreshCw
                   :class="['w-3.5 h-3.5', checkingProjects[proj.name] ? 'animate-spin text-amber-500' : '']"
-                  fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                >
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
+                />
                 <span>{{ checkingProjects[proj.name] ? '检查中...' : '检查更新' }}</span>
               </button>
             </el-tooltip>
@@ -238,6 +241,7 @@
               v-if="proj.path"
               size="small"
               @click="openEditor(proj)"
+              class="!rounded-lg"
             >
               查看配置
             </el-button>
@@ -249,7 +253,7 @@
               type="warning"
               :disabled="!proj.path"
               @click="updateProject(proj)"
-              class="!bg-gradient-to-r !from-amber-500 !to-orange-500 !border-0 hover:!opacity-95 !text-white font-medium shadow-xs"
+              class="!bg-gradient-to-r !from-amber-500 !to-orange-500 !border-0 hover:!opacity-95 !text-white font-medium shadow-xs !rounded-lg"
             >
               <template #icon>
                 <span class="mr-0.5">⚡</span>
@@ -264,6 +268,7 @@
               :class="isTargeted(proj.name) ? '!bg-purple-600 !border-purple-600 hover:!bg-purple-700' : ''"
               :disabled="!proj.path"
               @click="updateProject(proj)"
+              class="!rounded-lg"
             >
               拉取并更新编排
             </el-button>
@@ -276,12 +281,15 @@
     <el-dialog
       v-model="editorVisible"
       :title="`Compose 配置 - ${currentProject?.name}`"
-      width="750px"
+      width="92%"
+      style="max-width: 820px;"
       destroy-on-close
+      class="!rounded-2xl overflow-hidden"
     >
       <div class="space-y-3">
-        <div class="text-xs text-slate-500 font-mono bg-slate-100 dark:bg-slate-900 p-2 rounded truncate">
-          {{ currentProject?.path }}
+        <div class="text-xs text-slate-500 font-mono bg-slate-100 dark:bg-slate-900/80 p-2.5 rounded-xl truncate flex items-center border border-slate-200 dark:border-slate-800">
+          <Folder class="w-3.5 h-3.5 mr-1.5 opacity-70 shrink-0" />
+          <span class="truncate">{{ currentProject?.path }}</span>
         </div>
         <el-input
           v-model="composeContent"
@@ -292,11 +300,11 @@
         />
       </div>
       <template #footer>
-        <div class="flex justify-between items-center">
-          <span class="text-xs text-slate-400">保存修改会自动生成 .bak 历史备份文件</span>
+        <div class="flex flex-col sm:flex-row justify-between items-center gap-2">
+          <span class="text-xs text-slate-400">💡 保存修改会自动生成 .bak 历史备份文件</span>
           <div class="space-x-2">
-            <el-button @click="editorVisible = false">取消</el-button>
-            <el-button type="primary" :loading="saving" @click="saveComposeFile">保存配置</el-button>
+            <el-button @click="editorVisible = false" class="!rounded-lg">取消</el-button>
+            <el-button type="primary" :loading="saving" @click="saveComposeFile" class="!rounded-lg">保存配置</el-button>
           </div>
         </div>
       </template>
@@ -308,6 +316,13 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
+import {
+  Layers,
+  Search,
+  RefreshCw,
+  Zap,
+  Folder
+} from 'lucide-vue-next';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/app';
 import StatusBadge from '../components/StatusBadge.vue';

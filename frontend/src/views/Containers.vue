@@ -1,20 +1,23 @@
 <template>
   <div class="space-y-6">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-sm">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
       <div>
         <h1 class="text-xl font-bold text-slate-900 dark:text-white">单容器管理</h1>
         <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
           管理飞牛 NAS 上的所有 Docker 独立容器与 Compose 实例，支持版本锁定与自动容灾回滚
         </p>
       </div>
-      <div class="flex items-center space-x-3">
+      <div class="flex flex-wrap items-center gap-2.5">
         <el-button
           type="primary"
           :loading="checkingAll"
           @click="checkAll"
-          class="!rounded-lg"
+          class="!rounded-xl shadow-sm shadow-blue-500/20"
         >
+          <template #icon>
+            <RefreshCw class="w-4 h-4 mr-1" :class="{ 'animate-spin': checkingAll }" />
+          </template>
           检测全部更新
         </el-button>
         <el-button
@@ -22,16 +25,19 @@
           type="warning"
           plain
           @click="batchUpdate"
-          class="!rounded-lg"
+          class="!rounded-xl"
         >
+          <template #icon>
+            <Zap class="w-4 h-4 mr-1" />
+          </template>
           批量更新 ({{ selectedContainers.length }})
         </el-button>
       </div>
     </div>
 
     <!-- Filters & Search -->
-    <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-      <div class="flex items-center space-x-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+    <div class="bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center space-x-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 scrollbar-none">
         <el-radio-group v-model="filterTab" size="default">
           <el-radio-button label="all">全部 ({{ containers.length }})</el-radio-button>
           <el-radio-button label="standalone">纯独立容器 ({{ standaloneCount }})</el-radio-button>
@@ -46,24 +52,29 @@
           v-model="searchQuery"
           placeholder="搜索容器名或镜像..."
           clearable
+          class="!rounded-xl"
         >
           <template #prefix>
-            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <Search class="w-4 h-4 text-slate-400" />
           </template>
         </el-input>
       </div>
     </div>
 
     <!-- Container Table -->
-    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-sm overflow-hidden">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs overflow-hidden">
+      <div v-if="loading && containers.length === 0" class="p-6">
+        <el-skeleton :rows="6" animated />
+      </div>
+
       <el-table
+        v-else
         :data="filteredContainers"
         v-loading="loading"
         @selection-change="handleSelectionChange"
         row-key="id"
         style="width: 100%"
+        class="containers-table"
       >
         <el-table-column type="selection" width="48" />
 
@@ -77,16 +88,12 @@
               <span
                 v-if="row.isCompose"
                 @click.stop="goToComposeProject(row.composeProject)"
-                class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-800/80 hover:shadow-xs transition-all"
+                class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800/60 cursor-pointer hover:bg-purple-200 dark:hover:bg-purple-800/80 hover:shadow-2xs transition-all"
                 title="该容器属于 Compose 编排项目，点击直达项目卡片"
               >
-                <svg class="w-3 h-3 text-purple-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
-                </svg>
+                <Layers class="w-3 h-3 text-purple-500 shrink-0" />
                 <span>Compose: {{ row.composeProject || '编排关联' }}</span>
-                <svg class="w-2.5 h-2.5 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                </svg>
+                <ChevronRight class="w-2.5 h-2.5 opacity-60" />
               </span>
 
               <!-- Standalone Badge -->
@@ -97,8 +104,8 @@
                 独立容器
               </span>
 
-              <span v-if="row.isPinned" class="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded font-mono">
-                锁定
+              <span v-if="row.isPinned" class="inline-flex items-center text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 px-1.5 py-0.5 rounded font-mono">
+                <Lock class="w-2.5 h-2.5 mr-0.5" /> 锁定
               </span>
               <span v-if="row.isIgnored" class="text-[10px] bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400 px-1.5 py-0.5 rounded">
                 已忽略
@@ -106,8 +113,9 @@
             </div>
             <div class="text-xs text-slate-400 font-mono mt-0.5 flex items-center space-x-2">
               <span>{{ row.id.substring(0, 12) }}</span>
-              <span v-if="row.composeFile" class="text-slate-400 truncate max-w-xs text-[11px]" :title="row.composeFile">
-                📁 {{ row.composeFile }}
+              <span v-if="row.composeFile" class="text-slate-400 truncate max-w-xs text-[11px] flex items-center" :title="row.composeFile">
+                <Folder class="w-3 h-3 mr-1 opacity-70 shrink-0" />
+                <span class="truncate">{{ row.composeFile }}</span>
               </span>
             </div>
           </template>
@@ -117,7 +125,7 @@
         <el-table-column label="镜像仓库与标签" min-width="200">
           <template #default="{ row }">
             <div class="font-mono text-xs text-slate-700 dark:text-slate-200 truncate">{{ row.image }}</div>
-            <span class="inline-block mt-0.5 text-[11px] bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-1.5 py-0.2 rounded font-mono">
+            <span class="inline-block mt-0.5 text-[11px] bg-slate-100 dark:bg-slate-700/80 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded font-mono">
               {{ row.tag }}
             </span>
           </template>
@@ -146,7 +154,7 @@
               >
                 {{ p }}
               </span>
-              <span v-if="row.ports.length > 3" class="text-[11px] text-slate-400">
+              <span v-if="row.ports.length > 3" class="text-[11px] text-slate-400 font-mono">
                 +{{ row.ports.length - 3 }}
               </span>
             </div>
@@ -171,6 +179,7 @@
                 size="small"
                 :loading="checkingId === row.id"
                 @click="checkSingle(row)"
+                class="!rounded-lg"
               >
                 检查
               </el-button>
@@ -180,15 +189,14 @@
                 :type="row.updateAvailable ? 'warning' : 'primary'"
                 plain
                 @click="handleUpdateClick(row)"
+                class="!rounded-lg"
               >
                 升级
               </el-button>
 
               <el-dropdown trigger="click">
-                <el-button size="small" class="!px-2">
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                  </svg>
+                <el-button size="small" class="!px-2 !rounded-lg">
+                  <MoreVertical class="w-3.5 h-3.5" />
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -204,6 +212,18 @@
             </div>
           </template>
         </el-table-column>
+
+        <template #empty>
+          <div class="py-12">
+            <el-empty description="未匹配到任何容器数据" :image-size="80">
+              <template #extra>
+                <el-button size="small" type="primary" @click="loadContainers" class="!rounded-lg">
+                  刷新列表
+                </el-button>
+              </template>
+            </el-empty>
+          </div>
+        </template>
       </el-table>
     </div>
 
@@ -211,17 +231,16 @@
     <el-dialog
       v-model="interceptDialogVisible"
       title="🛡️ 安全防呆拦截：检测到 Compose 编排项目容器"
-      width="600px"
+      width="92%"
+      style="max-width: 620px;"
       destroy-on-close
-      class="!rounded-2xl"
+      class="!rounded-2xl overflow-hidden"
     >
       <div class="space-y-4">
         <!-- Alert Banner -->
         <div class="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl p-4 flex items-start space-x-3">
           <div class="p-2 bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-400 rounded-lg shrink-0 mt-0.5">
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+            <ShieldAlert class="w-5 h-5" />
           </div>
           <div>
             <h4 class="text-sm font-bold text-amber-900 dark:text-amber-200">
@@ -238,9 +257,7 @@
           <div class="flex items-center justify-between">
             <span class="text-slate-500 dark:text-slate-400">所属编排项目：</span>
             <span class="font-bold text-purple-600 dark:text-purple-400 flex items-center space-x-1.5 bg-purple-50 dark:bg-purple-900/30 px-2 py-0.5 rounded border border-purple-200 dark:border-purple-800/50">
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 100-6 3 3 0 000 6z" />
-              </svg>
+              <Layers class="w-3.5 h-3.5" />
               <span>{{ interceptContainer?.composeProject }}</span>
             </span>
           </div>
@@ -271,20 +288,21 @@
       </div>
 
       <template #footer>
-        <div class="flex items-center justify-between pt-2">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2">
           <el-button
             type="danger"
             text
             size="small"
             @click="forceUpdateSingle"
+            class="order-2 sm:order-1"
           >
             仍按单容器强制更新
           </el-button>
-          <div class="space-x-2">
-            <el-button @click="interceptDialogVisible = false">取消</el-button>
+          <div class="space-x-2 order-1 sm:order-2 w-full sm:w-auto flex justify-end">
+            <el-button @click="interceptDialogVisible = false" class="!rounded-lg">取消</el-button>
             <el-button
               type="primary"
-              class="!bg-purple-600 !border-purple-600 hover:!bg-purple-700"
+              class="!bg-purple-600 !border-purple-600 hover:!bg-purple-700 !rounded-lg"
               @click="goToComposeFromModal"
             >
               👉 前往 Compose 编排安全更新 (推荐)
@@ -300,6 +318,17 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import {
+  Search,
+  RefreshCw,
+  Zap,
+  Layers,
+  ChevronRight,
+  MoreVertical,
+  Lock,
+  Folder,
+  ShieldAlert
+} from 'lucide-vue-next';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/app';
 import StatusBadge from '../components/StatusBadge.vue';

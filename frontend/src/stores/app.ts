@@ -36,6 +36,14 @@ export const useAppStore = defineStore('app', () => {
     terminalVisible.value = false;
   }
 
+  const dockerConnected = ref<boolean | null>(null);
+  const demoMode = ref(false);
+
+  function setDockerStatus(connected: boolean, demo: boolean) {
+    dockerConnected.value = connected;
+    demoMode.value = demo;
+  }
+
   return {
     isDark,
     toggleDark,
@@ -44,6 +52,9 @@ export const useAppStore = defineStore('app', () => {
     terminalVisible,
     terminalTitle,
     openTerminal,
-    closeTerminal
+    closeTerminal,
+    dockerConnected,
+    demoMode,
+    setDockerStatus
   };
 });
