@@ -275,11 +275,15 @@ export class ComposeService {
       throw pullErr;
     }
 
-    // Step 2: docker compose up -d
-    sseManager.emitLog(sessionId, `[Compose] 正在编排重启容器服务: ${bin} ${argsPrefix.join(' ')} -f ${path.basename(filePath)} up -d...`, 'info');
+    // Step 2: docker compose up -d (using --pull never because pull step already refreshed all images and prevents pull_policy: always from crashing on local/private images)
+    const upArgs = [...argsPrefix, '-f', filePath, 'up', '-d', '--remove-orphans'];
+    if (argsPrefix.includes('compose')) {
+      upArgs.push('--pull', 'never');
+    }
+    sseManager.emitLog(sessionId, `[Compose] 正在编排重启容器服务: ${bin} ${upArgs.slice(argsPrefix.length).join(' ')}...`, 'info');
 
     try {
-      const upProcess = execa(bin, [...argsPrefix, '-f', filePath, 'up', '-d', '--remove-orphans'], {
+      const upProcess = execa(bin, upArgs, {
         cwd: workingDir,
         env: { ...process.env, PATH: process.env.PATH }
       });
