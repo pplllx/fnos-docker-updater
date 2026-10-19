@@ -252,11 +252,11 @@ export class ComposeService {
     sseManager.emitLog(sessionId, `>>> 开始更新 Compose 项目: ${projectName}`, 'info');
     sseManager.emitLog(sessionId, `工作目录: ${workingDir}, 文件: ${filePath}`, 'info');
 
-    // Step 1: docker compose pull
-    sseManager.emitLog(sessionId, `[Compose] 正在执行镜像拉取: ${bin} ${argsPrefix.join(' ')} -f ${path.basename(filePath)} pull...`, 'info');
+    // Step 1: docker compose pull (safely ignores local/unpullable custom images)
+    sseManager.emitLog(sessionId, `[Compose] 正在执行镜像拉取: ${bin} ${argsPrefix.join(' ')} -f ${path.basename(filePath)} pull --ignore-pull-failures...`, 'info');
     
     try {
-      const pullProcess = execa(bin, [...argsPrefix, '-f', filePath, 'pull'], {
+      const pullProcess = execa(bin, [...argsPrefix, '-f', filePath, 'pull', '--ignore-pull-failures'], {
         cwd: workingDir,
         env: { ...process.env, PATH: process.env.PATH }
       });
