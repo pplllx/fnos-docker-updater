@@ -1,5 +1,6 @@
 services:
   fnos-docker-updater:
+    image: ghcr.io/pplllx/fnos-docker-updater:latest
     build: .
     container_name: fnos-docker-updater
     restart: unless-stopped

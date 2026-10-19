@@ -26,7 +26,7 @@
 ```yaml
 services:
   fnos-docker-updater:
-    image: pengpenglu/fnos-docker-updater:latest
+    image: ghcr.io/pplllx/fnos-docker-updater:latest
     container_name: fnos-docker-updater
     restart: unless-stopped
     ports:
