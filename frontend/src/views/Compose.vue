@@ -1,10 +1,9 @@
 <template>
   <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
+    <div class="glass-panel p-6 sm:p-7 rounded-3xl flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative overflow-hidden transition-all">
       <div>
-        <div class="flex items-center space-x-3">
-          <h1 class="text-xl font-bold text-slate-900 dark:text-white">Compose 项目编排</h1>
+          <div class="flex items-center space-x-3">
+            <h1 class="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Compose 项目编排</h1>
           <span
             v-if="updatableCount > 0"
             class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs animate-pulse"
@@ -130,12 +129,12 @@
         :key="proj.name"
         :id="'project-' + proj.name"
         :class="[
-          'bg-white dark:bg-slate-800 rounded-2xl border p-5 sm:p-6 flex flex-col justify-between space-y-4 transition-all duration-300 relative overflow-hidden',
+          'glass-panel hover-glow rounded-3xl p-6 flex flex-col justify-between space-y-4 relative overflow-hidden transition-all',
           isTargeted(proj.name)
-            ? 'border-purple-500 ring-2 ring-purple-500/50 shadow-lg shadow-purple-500/10'
+            ? 'border-purple-500/70 ring-2 ring-purple-500/40 shadow-xl shadow-purple-500/10'
             : proj.updateAvailable
-              ? 'border-amber-400 dark:border-amber-500/80 ring-2 ring-amber-400/20 shadow-md shadow-amber-500/5 bg-gradient-to-b from-amber-500/[0.03] to-transparent'
-              : 'border-slate-200/80 dark:border-slate-700/60 shadow-xs hover:shadow-md'
+              ? 'border-amber-400/80 ring-2 ring-amber-400/30 shadow-md shadow-amber-500/10'
+              : ''
         ]"
       >
         <!-- Update Ribbon corner (decorative hint) -->

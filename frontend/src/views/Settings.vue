@@ -1,10 +1,10 @@
 <template>
   <div class="space-y-6 max-w-5xl">
-    <div class="bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
+    <div class="glass-panel p-6 sm:p-7 rounded-3xl relative overflow-hidden transition-all">
       <div class="flex items-center space-x-2.5">
-        <h1 class="text-xl font-bold text-slate-900 dark:text-white">系统设置</h1>
-        <span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-700/60 dark:text-slate-300">
-          <span>控制面板配置</span>
+        <h1 class="text-2xl font-black text-slate-900 dark:text-white tracking-tight">系统设置</h1>
+        <span class="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+          <span>控制面板核心配置</span>
         </span>
       </div>
       <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -12,7 +12,7 @@
       </p>
     </div>
 
-    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs p-6">
+    <div class="glass-panel rounded-3xl p-6 sm:p-8 transition-all">
       <el-tabs v-model="activeTab" class="settings-tabs">
         <!-- Tab 1: 镜像加速与网络代理 -->
         <el-tab-pane label="镜像源与代理" name="mirrors">

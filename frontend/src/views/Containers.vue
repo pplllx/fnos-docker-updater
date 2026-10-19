@@ -1,42 +1,37 @@
 <template>
   <div class="space-y-6">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs">
-      <div>
-        <h1 class="text-xl font-bold text-slate-900 dark:text-white">单容器管理</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          管理飞牛 NAS 上的所有 Docker 独立容器与 Compose 实例，支持版本锁定与自动容灾回滚
-        </p>
-      </div>
-      <div class="flex flex-wrap items-center gap-2.5">
-        <el-button
-          type="primary"
-          :loading="checkingAll"
-          @click="checkAll"
-          class="!rounded-xl shadow-sm shadow-blue-500/20"
-        >
-          <template #icon>
-            <RefreshCw class="w-4 h-4 mr-1" :class="{ 'animate-spin': checkingAll }" />
-          </template>
-          检测全部更新
-        </el-button>
-        <el-button
-          :disabled="selectedContainers.length === 0"
-          type="warning"
-          plain
-          @click="batchUpdate"
-          class="!rounded-xl"
-        >
-          <template #icon>
-            <Zap class="w-4 h-4 mr-1" />
-          </template>
-          批量更新 ({{ selectedContainers.length }})
-        </el-button>
+    <div class="glass-panel p-6 sm:p-7 rounded-3xl relative overflow-hidden transition-all">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 class="text-2xl font-black text-slate-900 dark:text-white tracking-tight">单容器管理</h1>
+          <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            管理飞牛 NAS 上的所有 Docker 独立容器与 Compose 实例，支持版本锁定与自动容灾回滚
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button
+            :disabled="checkingAll"
+            @click="checkAll"
+            class="inline-flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-md shadow-blue-500/25 active:scale-95 transition-all cursor-pointer disabled:opacity-70"
+          >
+            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': checkingAll }" />
+            <span>{{ checkingAll ? '全量检测中...' : '检测全部更新' }}</span>
+          </button>
+          <button
+            :disabled="selectedContainers.length === 0"
+            @click="batchUpdate"
+            class="inline-flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 active:scale-95 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Zap class="w-3.5 h-3.5" />
+            <span>批量更新 ({{ selectedContainers.length }})</span>
+          </button>
+        </div>
       </div>
     </div>
 
     <!-- Filters & Search -->
-    <div class="bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+    <div class="glass-panel p-4 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-4">
       <div class="flex items-center space-x-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0 scrollbar-none">
         <el-radio-group v-model="filterTab" size="default">
           <el-radio-button label="all">全部 ({{ containers.length }})</el-radio-button>
@@ -62,7 +57,7 @@
     </div>
 
     <!-- Container Table -->
-    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/80 dark:border-slate-700/60 shadow-xs overflow-hidden">
+    <div class="glass-panel rounded-3xl overflow-hidden transition-all">
       <div v-if="loading && containers.length === 0" class="p-6">
         <el-skeleton :rows="6" animated />
       </div>
