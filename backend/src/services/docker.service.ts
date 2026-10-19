@@ -279,21 +279,46 @@ export class DockerService {
       // Clone HostConfig to avoid mutating inspect cache
       const hostConfig: Docker.HostConfig = { ...(oldInfo.HostConfig || {}) };
 
-      // 1. Ensure all active mounts (bind mounts and named volumes) are explicitly preserved in Binds
-      const existingBinds = new Set<string>(hostConfig.Binds || []);
-      if (Array.isArray(oldInfo.Mounts)) {
-        for (const m of oldInfo.Mounts) {
-          if (m.Type === 'bind' && m.Source && m.Destination) {
-            const bindStr = `${m.Source}:${m.Destination}${m.RW === false ? ':ro' : ''}`;
-            existingBinds.add(bindStr);
-          } else if (m.Type === 'volume' && m.Name && m.Destination) {
-            const bindStr = `${m.Name}:${m.Destination}${m.RW === false ? ':ro' : ''}`;
-            existingBinds.add(bindStr);
+      // 1. Gather all destinations already configured in HostConfig.Mounts and HostConfig.Binds
+      const existingTargets = new Set<string>();
+
+      if (Array.isArray(hostConfig.Mounts)) {
+        for (const m of hostConfig.Mounts) {
+          const dest = (m as any).Target || (m as any).Destination;
+          if (dest) existingTargets.add(dest);
+        }
+      }
+
+      if (Array.isArray(hostConfig.Binds)) {
+        for (const b of hostConfig.Binds) {
+          const parts = b.split(':');
+          if (parts.length >= 2 && parts[1]) {
+            existingTargets.add(parts[1]);
           }
         }
       }
-      if (existingBinds.size > 0) {
-        hostConfig.Binds = Array.from(existingBinds);
+
+      // If there are orphaned active mounts from oldInfo.Mounts (e.g. inherited via old VolumesFrom),
+      // preserve them explicitly into Binds without duplicating already configured targets
+      const extraBinds = new Set<string>(hostConfig.Binds || []);
+      if (Array.isArray(oldInfo.Mounts)) {
+        for (const m of oldInfo.Mounts) {
+          if (!m.Destination || existingTargets.has(m.Destination)) {
+            continue;
+          }
+          if (m.Type === 'bind' && m.Source) {
+            const bindStr = `${m.Source}:${m.Destination}${m.RW === false ? ':ro' : ''}`;
+            extraBinds.add(bindStr);
+            existingTargets.add(m.Destination);
+          } else if (m.Type === 'volume' && m.Name) {
+            const bindStr = `${m.Name}:${m.Destination}${m.RW === false ? ':ro' : ''}`;
+            extraBinds.add(bindStr);
+            existingTargets.add(m.Destination);
+          }
+        }
+      }
+      if (extraBinds.size > 0) {
+        hostConfig.Binds = Array.from(extraBinds);
       }
 
       // 2. Validate and sanitize VolumesFrom: remove dead/non-existent container references
