@@ -276,6 +276,66 @@ export class DockerService {
     try {
       sseManager.emitLog(sessionId, `[重建] 正在使用新镜像重建容器配置...`, 'info');
       
+      // Clone HostConfig to avoid mutating inspect cache
+      const hostConfig: Docker.HostConfig = { ...(oldInfo.HostConfig || {}) };
+
+      // 1. Ensure all active mounts (bind mounts and named volumes) are explicitly preserved in Binds
+      const existingBinds = new Set<string>(hostConfig.Binds || []);
+      if (Array.isArray(oldInfo.Mounts)) {
+        for (const m of oldInfo.Mounts) {
+          if (m.Type === 'bind' && m.Source && m.Destination) {
+            const bindStr = `${m.Source}:${m.Destination}${m.RW === false ? ':ro' : ''}`;
+            existingBinds.add(bindStr);
+          } else if (m.Type === 'volume' && m.Name && m.Destination) {
+            const bindStr = `${m.Name}:${m.Destination}${m.RW === false ? ':ro' : ''}`;
+            existingBinds.add(bindStr);
+          }
+        }
+      }
+      if (existingBinds.size > 0) {
+        hostConfig.Binds = Array.from(existingBinds);
+      }
+
+      // 2. Validate and sanitize VolumesFrom: remove dead/non-existent container references
+      if (Array.isArray(hostConfig.VolumesFrom) && hostConfig.VolumesFrom.length > 0) {
+        try {
+          const allContainers = await docker.listContainers({ all: true });
+          const existingNames = new Set<string>();
+          allContainers.forEach(c => {
+            (c.Names || []).forEach(n => existingNames.add(n.replace(/^\//, '')));
+          });
+
+          hostConfig.VolumesFrom = hostConfig.VolumesFrom.filter(vf => {
+            const refName = vf.split(':')[0].replace(/^\//, '');
+            const exists = existingNames.has(refName);
+            if (!exists) {
+              sseManager.emitLog(sessionId, `[自愈] 自动清理失效的 VolumesFrom 容器引用: ${refName} (已自动转为显式存储卷持久化)`, 'warn');
+            }
+            return exists;
+          });
+
+          if (hostConfig.VolumesFrom.length === 0) {
+            delete (hostConfig as any).VolumesFrom;
+          }
+        } catch {
+          delete (hostConfig as any).VolumesFrom;
+        }
+      }
+
+      // 3. Handle multi-network attachments safely (Docker createContainer only accepts 1 network in EndpointsConfig)
+      const allNetworks = oldInfo.NetworkSettings?.Networks || {};
+      const networkNames = Object.keys(allNetworks);
+      const initialEndpointsConfig: Record<string, any> = {};
+      const extraNetworks: string[] = [];
+
+      if (networkNames.length > 0) {
+        const primaryNet = networkNames[0];
+        initialEndpointsConfig[primaryNet] = allNetworks[primaryNet];
+        for (let i = 1; i < networkNames.length; i++) {
+          extraNetworks.push(networkNames[i]);
+        }
+      }
+
       const createOptions: Docker.ContainerCreateOptions = {
         name: originalName,
         Image: imageName,
@@ -285,13 +345,28 @@ export class DockerService {
         WorkingDir: oldInfo.Config.WorkingDir,
         Labels: oldInfo.Config.Labels,
         ExposedPorts: oldInfo.Config.ExposedPorts,
-        HostConfig: oldInfo.HostConfig,
+        HostConfig: hostConfig,
         NetworkingConfig: {
-          EndpointsConfig: oldInfo.NetworkSettings.Networks
+          EndpointsConfig: initialEndpointsConfig
         }
       };
 
       newContainer = await docker.createContainer(createOptions);
+
+      // Attach any secondary networks before starting
+      for (const netName of extraNetworks) {
+        try {
+          const net = docker.getNetwork(netName);
+          await net.connect({
+            Container: newContainer.id,
+            EndpointConfig: allNetworks[netName]
+          });
+          sseManager.emitLog(sessionId, `[网络] 成功接入从属网络: ${netName}`, 'info');
+        } catch (netErr: any) {
+          sseManager.emitLog(sessionId, `[警告] 接入网络 ${netName} 失败: ${netErr.message}`, 'warn');
+        }
+      }
+
       sseManager.emitLog(sessionId, `[启动] 正在启动新容器...`, 'info');
       await newContainer.start();
 
