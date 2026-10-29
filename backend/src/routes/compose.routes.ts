@@ -43,17 +43,18 @@ export async function composeRoutes(fastify: FastifyInstance) {
   // Trigger compose project update
   fastify.post('/:name/update', async (req: FastifyRequest<{
     Params: { name: string };
-    Body: { path: string; sessionId?: string };
+    Body: { path?: string; sessionId?: string };
   }>) => {
     const { name } = req.params;
-    const { path, sessionId } = req.body;
-    const actualSessionId = sessionId || `compose-update-${Date.now()}`;
+    const { path, sessionId } = req.body || {};
+    const actualSessionId = sessionId || `compose-update-${name}-${Date.now()}`;
 
-    ComposeService.updateProject(name, path, actualSessionId)
+    ComposeService.updateProject(name, path || '', actualSessionId)
       .then(() => {
         sseManager.emitStatus(actualSessionId, 'completed', 100);
       })
       .catch((err) => {
+        sseManager.emitLog(actualSessionId, `[错误] 执行失败: ${err.message}`, 'error');
         sseManager.emitStatus(actualSessionId, 'failed', 0);
       });
 

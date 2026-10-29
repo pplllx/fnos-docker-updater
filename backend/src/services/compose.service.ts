@@ -218,24 +218,30 @@ export class ComposeService {
    * Read compose file content
    */
   public static getComposeFileContent(filePath: string): string {
-    if (!fs.existsSync(filePath)) {
+    const files = (filePath || '').split(',').map(f => f.trim()).filter(Boolean);
+    const targetFile = files.find(f => fs.existsSync(f)) || files[0] || filePath;
+
+    if (!fs.existsSync(targetFile)) {
       if (getSetting('demoMode', false)) {
         return `services:\n  qbittorrent:\n    image: linuxserver/qbittorrent:latest\n    container_name: qbittorrent\n    environment:\n      - PUID=1000\n      - PGID=1000\n      - TZ=Asia/Shanghai\n    volumes:\n      - /vol1/1000/docker/qbittorrent/config:/config\n      - /vol1/1000/downloads:/downloads\n    ports:\n      - 8085:8080\n      - 6881:6881\n    restart: unless-stopped\n`;
       }
-      throw new Error(`Compose file does not exist: ${filePath}`);
+      throw new Error(`Compose 文件不存在: ${targetFile}`);
     }
-    return fs.readFileSync(filePath, 'utf-8');
+    return fs.readFileSync(targetFile, 'utf-8');
   }
 
   /**
    * Save compose file content (with auto backup)
    */
   public static saveComposeFileContent(filePath: string, content: string): void {
-    if (fs.existsSync(filePath)) {
-      const backupPath = `${filePath}.bak_${Date.now()}`;
-      fs.copyFileSync(filePath, backupPath);
+    const files = (filePath || '').split(',').map(f => f.trim()).filter(Boolean);
+    const targetFile = files.find(f => fs.existsSync(f)) || files[0] || filePath;
+
+    if (fs.existsSync(targetFile)) {
+      const backupPath = `${targetFile}.bak_${Date.now()}`;
+      fs.copyFileSync(targetFile, backupPath);
     }
-    fs.writeFileSync(filePath, content, 'utf-8');
+    fs.writeFileSync(targetFile, content, 'utf-8');
   }
 
   /**
@@ -244,19 +250,39 @@ export class ComposeService {
   public static async updateProject(projectName: string, filePath: string, sessionId: string): Promise<void> {
     const { bin, argsPrefix } = await this.getComposeCommand();
 
-    if (!filePath || !fs.existsSync(filePath)) {
-      throw new Error(`找不到有效的 compose 文件路径: ${filePath}`);
+    // If filePath is empty or missing, find it from project list
+    if (!filePath) {
+      const projects = await this.listProjects();
+      const p = projects.find(item => item.name === projectName);
+      if (p && p.path) {
+        filePath = p.path;
+      }
     }
 
-    const workingDir = path.dirname(filePath);
+    const files = (filePath || '').split(',').map(f => f.trim()).filter(Boolean);
+    const existingFiles = files.filter(f => fs.existsSync(f));
+
+    if (existingFiles.length === 0) {
+      const err = new Error(`找不到有效的 compose 文件路径: ${filePath}`);
+      sseManager.emitLog(sessionId, `[错误] ${err.message}`, 'error');
+      throw err;
+    }
+
+    const workingDir = path.dirname(existingFiles[0]);
+    const fileArgs: string[] = [];
+    for (const f of existingFiles) {
+      fileArgs.push('-f', f);
+    }
+
     sseManager.emitLog(sessionId, `>>> 开始更新 Compose 项目: ${projectName}`, 'info');
-    sseManager.emitLog(sessionId, `工作目录: ${workingDir}, 文件: ${filePath}`, 'info');
+    sseManager.emitLog(sessionId, `工作目录: ${workingDir}`, 'info');
+    sseManager.emitLog(sessionId, `配置文件: ${existingFiles.join(', ')}`, 'info');
 
     // Step 1: docker compose pull (safely ignores local/unpullable custom images)
-    sseManager.emitLog(sessionId, `[Compose] 正在执行镜像拉取: ${bin} ${argsPrefix.join(' ')} -f ${path.basename(filePath)} pull --ignore-pull-failures...`, 'info');
+    sseManager.emitLog(sessionId, `[Compose] 正在执行镜像拉取: ${bin} ${argsPrefix.join(' ')} ${fileArgs.join(' ')} pull --ignore-pull-failures...`, 'info');
     
     try {
-      const pullProcess = execa(bin, [...argsPrefix, '-f', filePath, 'pull', '--ignore-pull-failures'], {
+      const pullProcess = execa(bin, [...argsPrefix, ...fileArgs, 'pull', '--ignore-pull-failures'], {
         cwd: workingDir,
         env: { ...process.env, PATH: process.env.PATH }
       });
@@ -276,7 +302,7 @@ export class ComposeService {
     }
 
     // Step 2: docker compose up -d (using --pull never because pull step already refreshed all images and prevents pull_policy: always from crashing on local/private images)
-    const upArgs = [...argsPrefix, '-f', filePath, 'up', '-d', '--remove-orphans'];
+    const upArgs = [...argsPrefix, ...fileArgs, 'up', '-d', '--remove-orphans'];
     if (argsPrefix.includes('compose')) {
       upArgs.push('--pull', 'never');
     }
