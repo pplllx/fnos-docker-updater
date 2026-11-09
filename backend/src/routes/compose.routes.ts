@@ -17,10 +17,12 @@ export async function composeRoutes(fastify: FastifyInstance) {
     Params: { name: string };
     Querystring: { path: string };
   }>, reply: FastifyReply) => {
+    const { name } = req.params;
     const { path } = req.query;
     try {
-      const content = ComposeService.getComposeFileContent(path);
-      return { path, content };
+      const resolvedPath = ComposeService.resolveComposePath(name, path);
+      const content = ComposeService.getComposeFileContent(resolvedPath, name);
+      return { path: resolvedPath, content };
     } catch (err: any) {
       return reply.status(404).send({ error: err.message });
     }
@@ -31,12 +33,29 @@ export async function composeRoutes(fastify: FastifyInstance) {
     Params: { name: string };
     Body: { path: string; content: string };
   }>, reply: FastifyReply) => {
+    const { name } = req.params;
     const { path, content } = req.body;
     try {
-      ComposeService.saveComposeFileContent(path, content);
-      return { message: '保存成功，已自动创建历史备份文件' };
+      const resolvedPath = ComposeService.resolveComposePath(name, path);
+      ComposeService.saveComposeFileContent(resolvedPath, content, name);
+      return { message: '保存成功，已自动创建历史备份文件', path: resolvedPath };
     } catch (err: any) {
       return reply.status(500).send({ error: err.message });
+    }
+  });
+
+  // Manually update or correct compose project path
+  fastify.put('/:name/path', async (req: FastifyRequest<{
+    Params: { name: string };
+    Body: { path: string };
+  }>, reply: FastifyReply) => {
+    const { name } = req.params;
+    const { path } = req.body || {};
+    try {
+      const res = ComposeService.updateProjectPath(name, path);
+      return res;
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message });
     }
   });
 

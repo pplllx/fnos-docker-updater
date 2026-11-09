@@ -26,6 +26,161 @@ export class ComposeService {
   }
 
   /**
+   * Check if given compose path string (supports comma-separated) contains at least one existing file
+   */
+  public static hasValidComposeFile(filePath: string | null | undefined): boolean {
+    if (!filePath) return false;
+    const files = filePath.split(',').map(f => f.trim()).filter(Boolean);
+    if (files.length === 0) return false;
+    return files.some(f => fs.existsSync(f));
+  }
+
+  /**
+   * Filter and return existing files from a comma-separated path string
+   */
+  public static getExistingComposeFiles(filePath: string | null | undefined): string[] {
+    if (!filePath) return [];
+    return filePath.split(',').map(f => f.trim()).filter(f => Boolean(f) && fs.existsSync(f));
+  }
+
+  /**
+   * Attempt to resolve host file path from in-container path via Docker container mounts
+   */
+  public static resolvePathFromMounts(candidatePath: string, mounts?: any[]): string | null {
+    if (!candidatePath || !mounts || !Array.isArray(mounts)) return null;
+    const composeNames = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'];
+
+    for (const m of mounts) {
+      if (m.Destination && m.Source) {
+        // Case A: candidatePath is inside m.Destination (e.g. /repo/docker-compose.yml -> /vol1/docker/mediary-scout/docker-compose.yml)
+        if (candidatePath.startsWith(m.Destination)) {
+          const rel = candidatePath.slice(m.Destination.length).replace(/^[/\\]+/, '');
+          const hostPath = path.join(m.Source, rel);
+          if (fs.existsSync(hostPath)) {
+            return hostPath;
+          }
+        }
+        // Case B: Mount source directory itself contains compose file
+        for (const name of composeNames) {
+          const testFile = path.join(m.Source, name);
+          if (fs.existsSync(testFile)) {
+            return testFile;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Robustly resolve Compose file path for a project by checking:
+   * 1. Candidate path validity
+   * 2. Container mounts
+   * 3. Database configured path
+   * 4. Standard NAS project directories & scan paths
+   */
+  public static resolveComposePath(projectName: string, candidatePath?: string, mounts?: any[]): string {
+    // 1. If candidatePath already points to existing file(s)
+    if (candidatePath && this.hasValidComposeFile(candidatePath)) {
+      const validFiles = this.getExistingComposeFiles(candidatePath);
+      return validFiles.join(',');
+    }
+
+    // 2. Try resolving candidatePath via container mounts
+    if (candidatePath && mounts) {
+      const fromMounts = this.resolvePathFromMounts(candidatePath, mounts);
+      if (fromMounts) {
+        this.saveProjectPathToDb(projectName, fromMounts);
+        return fromMounts;
+      }
+    }
+
+    // 3. Check SQLite database
+    try {
+      const row = db.prepare('SELECT path FROM compose_projects WHERE name = ?').get(projectName) as any;
+      if (row && row.path && this.hasValidComposeFile(row.path)) {
+        return this.getExistingComposeFiles(row.path).join(',');
+      }
+    } catch {}
+
+    // 4. Search standard NAS directories and configured scan paths
+    const composeNames = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'];
+    const searchDirs: string[] = [
+      `/vol1/docker/${projectName}`,
+      `/vol1/1000/docker/${projectName}`,
+      `/vol1/1000/${projectName}`,
+      `/vol2/docker/${projectName}`,
+      `/vol2/1000/docker/${projectName}`,
+      `/vol2/1000/${projectName}`,
+      `/vol1/${projectName}`,
+      `/vol2/${projectName}`,
+      `/home/adminadmin/${projectName}`,
+      `/root/${projectName}`
+    ];
+
+    const scanPaths = getSetting<string[]>('composeScanPaths', []);
+    for (const sp of scanPaths) {
+      searchDirs.push(path.join(sp, projectName));
+      searchDirs.push(path.join(sp, 'docker', projectName));
+      searchDirs.push(path.join(sp, '1000', projectName));
+      searchDirs.push(path.join(sp, '1000', 'docker', projectName));
+    }
+
+    for (const dir of searchDirs) {
+      try {
+        if (fs.existsSync(dir)) {
+          for (const name of composeNames) {
+            const testPath = path.join(dir, name);
+            if (fs.existsSync(testPath)) {
+              this.saveProjectPathToDb(projectName, testPath);
+              return testPath;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    return candidatePath || '';
+  }
+
+  /**
+   * Helper to persist discovered valid path into SQLite
+   */
+  public static saveProjectPathToDb(projectName: string, filePath: string): void {
+    if (!projectName || !filePath) return;
+    try {
+      db.prepare(`
+        INSERT INTO compose_projects (name, path)
+        VALUES (?, ?)
+        ON CONFLICT(name) DO UPDATE SET path = excluded.path
+        WHERE path IS NULL OR path = '' OR path != excluded.path
+      `).run(projectName, filePath);
+    } catch (e) {
+      console.warn('[Compose] Failed to save resolved path to DB', e);
+    }
+  }
+
+  /**
+   * User manually update compose project path
+   */
+  public static updateProjectPath(name: string, newPath: string): { success: boolean; path: string } {
+    const trimmed = (newPath || '').trim();
+    if (!trimmed) {
+      throw new Error('Compose 路径不能为空');
+    }
+    if (!this.hasValidComposeFile(trimmed)) {
+      throw new Error(`找不到指定的 Compose 文件: ${trimmed}`);
+    }
+    const cleanPath = this.getExistingComposeFiles(trimmed).join(',');
+    db.prepare(`
+      INSERT INTO compose_projects (name, path)
+      VALUES (?, ?)
+      ON CONFLICT(name) DO UPDATE SET path = excluded.path
+    `).run(name, cleanPath);
+    return { success: true, path: cleanPath };
+  }
+
+  /**
    * Discovers all Compose projects: combining Docker container labels + filesystem scan
    */
   public static async listProjects(): Promise<ComposeProjectItem[]> {
@@ -59,6 +214,7 @@ export class ComposeService {
               item = {
                 name: project,
                 path: configFile || '',
+                pathValid: false,
                 services: [],
                 status: 'stopped',
                 containers: [],
@@ -68,6 +224,25 @@ export class ComposeService {
                 isIgnored: false
               };
               projectsMap.set(project, item);
+            }
+
+            // Path self-healing from containers:
+            if (!this.hasValidComposeFile(item.path)) {
+              if (configFile && this.hasValidComposeFile(configFile)) {
+                item.path = this.getExistingComposeFiles(configFile).join(',');
+              } else if (c.Mounts) {
+                const resolvedFromMount = this.resolvePathFromMounts(configFile || item.path, c.Mounts);
+                if (resolvedFromMount) {
+                  item.path = resolvedFromMount;
+                }
+              }
+            } else if (configFile && this.hasValidComposeFile(configFile)) {
+              // If incoming has more valid files (e.g. override), prefer it
+              const currentCount = item.path.split(',').length;
+              const newCount = configFile.split(',').length;
+              if (newCount > currentCount) {
+                item.path = this.getExistingComposeFiles(configFile).join(',');
+              }
             }
 
             if (service && !item.services.includes(service)) {
@@ -157,7 +332,28 @@ export class ComposeService {
         if (meta.last_checked_at && (!item.lastCheckedAt || meta.last_checked_at > item.lastCheckedAt)) {
           item.lastCheckedAt = meta.last_checked_at;
         }
+        // If current path is invalid but DB has a valid path, use it!
+        if (!this.hasValidComposeFile(item.path) && meta.path && this.hasValidComposeFile(meta.path)) {
+          item.path = this.getExistingComposeFiles(meta.path).join(',');
+        }
       }
+
+      // Final fallback path resolution for any project that still lacks valid path
+      if (!this.hasValidComposeFile(item.path)) {
+        const resolved = this.resolveComposePath(name, item.path);
+        if (resolved && this.hasValidComposeFile(resolved)) {
+          item.path = resolved;
+        }
+      } else if (item.path && item.path.includes(',')) {
+        // Filter out non-existent files from multi-file path list
+        const valid = this.getExistingComposeFiles(item.path);
+        if (valid.length > 0) {
+          item.path = valid.join(',');
+        }
+      }
+
+      item.pathValid = this.hasValidComposeFile(item.path);
+
       if (!item.updatedServices) {
         item.updatedServices = [];
       }
@@ -189,10 +385,12 @@ export class ComposeService {
 
       if (foundComposeFile) {
         const projectName = path.basename(currentDir);
-        if (!projectsMap.has(projectName)) {
+        const existing = projectsMap.get(projectName);
+        if (!existing) {
           projectsMap.set(projectName, {
             name: projectName,
             path: foundComposeFile,
+            pathValid: true,
             services: [],
             status: 'stopped',
             containers: [],
@@ -201,6 +399,10 @@ export class ComposeService {
             updateCount: 0,
             isIgnored: false
           });
+        } else if (!this.hasValidComposeFile(existing.path)) {
+          existing.path = foundComposeFile;
+          existing.pathValid = true;
+          this.saveProjectPathToDb(projectName, foundComposeFile);
         }
       }
 
@@ -217,7 +419,10 @@ export class ComposeService {
   /**
    * Read compose file content
    */
-  public static getComposeFileContent(filePath: string): string {
+  public static getComposeFileContent(filePath: string, projectName?: string): string {
+    if (!this.hasValidComposeFile(filePath) && projectName) {
+      filePath = this.resolveComposePath(projectName, filePath);
+    }
     const files = (filePath || '').split(',').map(f => f.trim()).filter(Boolean);
     const targetFile = files.find(f => fs.existsSync(f)) || files[0] || filePath;
 
@@ -233,7 +438,10 @@ export class ComposeService {
   /**
    * Save compose file content (with auto backup)
    */
-  public static saveComposeFileContent(filePath: string, content: string): void {
+  public static saveComposeFileContent(filePath: string, content: string, projectName?: string): void {
+    if (!this.hasValidComposeFile(filePath) && projectName) {
+      filePath = this.resolveComposePath(projectName, filePath);
+    }
     const files = (filePath || '').split(',').map(f => f.trim()).filter(Boolean);
     const targetFile = files.find(f => fs.existsSync(f)) || files[0] || filePath;
 
@@ -250,12 +458,12 @@ export class ComposeService {
   public static async updateProject(projectName: string, filePath: string, sessionId: string): Promise<void> {
     const { bin, argsPrefix } = await this.getComposeCommand();
 
-    // If filePath is empty or missing, find it from project list
-    if (!filePath) {
-      const projects = await this.listProjects();
-      const p = projects.find(item => item.name === projectName);
-      if (p && p.path) {
-        filePath = p.path;
+    // If filePath is empty or invalid, try auto-resolving:
+    if (!this.hasValidComposeFile(filePath)) {
+      const resolved = this.resolveComposePath(projectName, filePath);
+      if (this.hasValidComposeFile(resolved)) {
+        sseManager.emitLog(sessionId, `[Compose] 路径自动校准: 将 '${filePath || '未提供'}' 校正为有效宿主机路径 '${resolved}'`, 'info');
+        filePath = resolved;
       }
     }
 
@@ -263,7 +471,7 @@ export class ComposeService {
     const existingFiles = files.filter(f => fs.existsSync(f));
 
     if (existingFiles.length === 0) {
-      const err = new Error(`找不到有效的 compose 文件路径: ${filePath}`);
+      const err = new Error(`找不到有效的 compose 文件路径: ${filePath || '未配置'}。请在「设置」中增加 Compose 扫描目录或手动指定路径。`);
       sseManager.emitLog(sessionId, `[错误] ${err.message}`, 'error');
       throw err;
     }
@@ -328,7 +536,10 @@ export class ComposeService {
       db.prepare(`
         INSERT INTO compose_projects (name, path, last_checked_at, update_available)
         VALUES (?, ?, CURRENT_TIMESTAMP, 0)
-        ON CONFLICT(name) DO UPDATE SET update_available = 0, last_checked_at = CURRENT_TIMESTAMP
+        ON CONFLICT(name) DO UPDATE SET
+          path = CASE WHEN excluded.path != '' THEN excluded.path ELSE compose_projects.path END,
+          update_available = 0,
+          last_checked_at = CURRENT_TIMESTAMP
       `).run(projectName, filePath);
 
       // Reset update_available in containers_meta for all containers in this compose project

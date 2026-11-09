@@ -22,6 +22,7 @@ export interface ContainerItem {
 export interface ComposeProjectItem {
   name: string;
   path: string;
+  pathValid?: boolean;
   services: string[];
   status: 'running' | 'partially_running' | 'stopped';
   containers: string[];

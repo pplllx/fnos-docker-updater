@@ -166,9 +166,26 @@
                     当前定位
                   </span>
                 </div>
-                <span class="text-xs text-slate-400 font-mono block truncate max-w-xs" :title="proj.path">
-                  {{ proj.path || '通过容器标签发现' }}
-                </span>
+                <div class="flex items-center space-x-1.5 mt-0.5">
+                  <span class="text-xs text-slate-400 font-mono truncate max-w-[200px] sm:max-w-xs block" :title="proj.path || '通过容器标签发现'">
+                    {{ proj.path || '通过容器标签发现' }}
+                  </span>
+                  <span
+                    v-if="proj.path && proj.pathValid === false"
+                    class="text-[10px] text-rose-600 bg-rose-50 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 px-1 py-0.2 rounded font-sans shrink-0 font-medium"
+                    title="在宿主机文件系统中未找到此路径，更新时将自动尝试校准或请点击右侧修改"
+                  >
+                    路径未就绪
+                  </span>
+                  <el-tooltip content="修改或指定 Compose 配置文件路径" placement="top">
+                    <button
+                      @click.stop="openPathEditor(proj)"
+                      class="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition p-0.5 rounded cursor-pointer"
+                    >
+                      <Pencil class="w-3 h-3" />
+                    </button>
+                  </el-tooltip>
+                </div>
               </div>
             </div>
 
@@ -308,6 +325,47 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- Edit Compose Path Dialog -->
+    <el-dialog
+      v-model="pathEditorVisible"
+      :title="`指定 Compose 路径 - ${pathProject?.name}`"
+      width="90%"
+      style="max-width: 580px;"
+      destroy-on-close
+      class="!rounded-2xl overflow-hidden"
+    >
+      <div class="space-y-4">
+        <p class="text-xs text-slate-500">
+          当容器标签中的路径属于容器内临时路径（如 /repo/...）或文件被迁移时，可在此手动指定飞牛宿主机上的真实 Compose 配置文件路径。
+        </p>
+        <div>
+          <label class="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
+            Compose 配置文件绝对路径
+          </label>
+          <el-input
+            v-model="customPathInput"
+            placeholder="例如: /vol1/docker/mediary-scout/docker-compose.yml"
+            clearable
+          >
+            <template #prefix>
+              <Folder class="w-4 h-4 text-slate-400" />
+            </template>
+          </el-input>
+          <span class="text-[11px] text-slate-400 mt-1 block">
+            支持多个文件联合编排（用英文逗号分隔）
+          </span>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end space-x-2">
+          <el-button @click="pathEditorVisible = false" class="!rounded-lg">取消</el-button>
+          <el-button type="primary" :loading="savingPath" @click="saveCustomPath" class="!rounded-lg">
+            确认并保存
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -320,7 +378,8 @@ import {
   Search,
   RefreshCw,
   Zap,
-  Folder
+  Folder,
+  Pencil
 } from 'lucide-vue-next';
 import { api } from '../api/client';
 import { useAppStore } from '../stores/app';
@@ -342,6 +401,34 @@ const editorVisible = ref(false);
 const currentProject = ref<any>(null);
 const composeContent = ref('');
 const saving = ref(false);
+
+const pathEditorVisible = ref(false);
+const pathProject = ref<any>(null);
+const customPathInput = ref('');
+const savingPath = ref(false);
+
+function openPathEditor(proj: any) {
+  pathProject.value = proj;
+  customPathInput.value = proj.path || '';
+  pathEditorVisible.value = true;
+}
+
+async function saveCustomPath() {
+  if (!pathProject.value) return;
+  savingPath.value = true;
+  try {
+    await api.put(`/compose/${pathProject.value.name}/path`, {
+      path: customPathInput.value.trim()
+    });
+    ElMessage.success('Compose 路径已成功更新');
+    pathEditorVisible.value = false;
+    await loadProjects();
+  } catch (err: any) {
+    ElMessage.error(err.response?.data?.error || err.message || '更新路径失败');
+  } finally {
+    savingPath.value = false;
+  }
+}
 
 const updatableCount = computed(() => {
   return projects.value.filter(p => p.updateAvailable).length;
